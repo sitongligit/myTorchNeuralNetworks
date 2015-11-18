@@ -5,7 +5,8 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 require 'optim'
-
+require 'xlua'
+require 'gnuplot'
 require 'series'
 
 local utils = require 'misc'
@@ -61,15 +62,15 @@ end
 -- params
 cmd = torch.CmdLine()
 -- model params
-cmd:option('-rnn_size', 10, 'Size of LSTM internal state')
+cmd:option('-rnn_size', 5, 'Size of LSTM internal state')
 cmd:option('window_size',15,'window size to look into the series')
 -- optimization
 cmd:option('-learning_rate', 1e-4, 'Learning rate')
 cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
 cmd:option('-learning_rate_decay_after', 10, 'In number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate', 0.95, 'Decay rate for rmsprop')
-cmd:option('-batch_size', 64, 'Batch size')
-cmd:option('-max_epochs', 50, 'Number of full passes through the training data')
+cmd:option('-batch_size', 1, 'Batch size')
+cmd:option('-max_epochs', 50000, 'Number of full passes through the training data')
 cmd:option('-dropout', 0.5, 'Dropout')
 cmd:option('-init_from', '', 'Initialize network parameters from checkpoint at this path')
 -- bookkeeping
@@ -88,7 +89,6 @@ cmd:option('-gpuid', -1, '0-indexed id of GPU to use. -1 = CPU')
 -- argument parsing
 opt = cmd:parse(arg or {})
 
-
 -- create the model. Feed one input at a time (value on the time series)
 protos = {}
 protos.lstm = createLSTM(1,opt.rnn_size)
@@ -104,15 +104,15 @@ params, grad_params = utils.combine_all_parameters(protos.lstm, protos.top)
 print('Parameters: ' .. params:size(1))
 params:uniform(-0.08, 0.08)
 
--- init the state and clone through time
-init_state = {}
-
+print('Unrolling LSTM through time...')
 if not protos.clones then
     protos.clones = {}
     protos.clones['lstm'] = utils.clone_many_times(protos.lstm, opt.window_size)
 end
 
 -- init the hidden state of the network
+print('Initiating hidden state...')
+init_state = {}
 local h_init = torch.zeros(opt.batch_size, opt.rnn_size)
 table.insert(init_state, h_init:clone())
 table.insert(init_state, h_init:clone())
@@ -120,25 +120,28 @@ table.insert(init_state, h_init:clone())
 local init_state_global = utils.clone_list(init_state)
 
 
+
 function feval_val()
 
     count = 0
 
     -- get time series data
-    x,y = loader:nextTrain()
+    x,y = loader:nextValidation()
 
     rnn_state = {[0] = init_state_global}
 
     -- go through all the time series
     for t = 1, opt.window_size do
-        lst = protos.clones.lstm[t]:forward{x:select(2,t), unpack(rnn_state[t-1])}
+        local input = x:select(2,t)
+        input = input:reshape(1,input:size(1))
+        lst = protos.clones.lstm[t]:forward{input, unpack(rnn_state[t-1])}
         rnn_state[t] = {}
         for i = 1, #init_state do table.insert(rnn_state[t], lst[i]) end
     end
 
     prediction = protos.top:forward(lst[#lst])
 
-    return prediction
+    return prediction, y
 end
 
 
@@ -151,7 +154,7 @@ function feval(x)
     grad_params:zero()
 
     -- get training time series
-    input,y = loader:nextValidation()
+    input,y = loader:nextTrain()
 
     ------------ forward pass ------------
 
@@ -159,7 +162,9 @@ function feval(x)
     rnn_state = {[0] = init_state_global}
 
     for t = 1, opt.window_size do
-        lst = protos.clones.lstm[t]:forward{input:select(2,t), unpack(rnn_state[t-1])}
+        local input = input:select(2,t)
+        input = input:reshape(1,input:size(1))
+        lst = protos.clones.lstm[t]:forward{input, unpack(rnn_state[t-1])}
         rnn_state[t] = {}
         for i = 1, #init_state do table.insert(rnn_state[t], lst[i]) end
     end
@@ -178,11 +183,13 @@ function feval(x)
     doutput_t = protos.top:backward(lst[#lst], dloss)
 
     -- init the state of the lstm backward pass through time
-    drnn_state[opt.window_size] = {}
+    drnn_state = {[opt.window_size] = utils.clone_list(init_state, true)}
+    drnn_state[opt.window_size][2] = doutput_t
+
 
     -- backward pass through time
     for t = opt.window_size, 1, -1 do
-        dlst = protos.clones.lstm[t]:backward({x:select(2, t), unpack(rnn_state[t-1])}, drnn_state[t])
+        dlst = protos.clones.lstm[t]:backward({input:select(2, t), unpack(rnn_state[t-1])}, drnn_state[t])
         drnn_state[t-1] = {}
         table.insert(drnn_state[t-1], dlst[2])
         table.insert(drnn_state[t-1], dlst[3])
@@ -198,27 +205,55 @@ end
 
 
 
+
 -- optimization state & params
 local optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
 
 losses = {}
 lloss = 0
+
+print('Begin training loop over epochs...')
 for i = 1, opt.max_epochs do
     _,local_loss = optim.rmsprop(feval, params, optim_state)
     losses[#losses + 1] = local_loss[1]
 
     lloss = lloss + local_loss[1]
 
+    xlua.progress(i, opt.max_epochs)
+
     if i%10 == 0 then
-        print('epoch ' .. i .. ' loss ' .. lloss / 10)
+        -- print('epoch ' .. i .. ' loss ' .. lloss / 10)
         lloss = 0
+        collectgarbage()
     end
 
     if i%10 == 0 then
-        collectgarbage()
+        
     end
 end
 
+tensored_loss = torch.zeros(#losses)
+for i,l in ipairs(losses) do
+    tensored_loss[i] = l
+end
+
+gnuplot.figure()
+gnuplot.plot({'loss evolution', tensored_loss})
+io.read()
+
+print('Validating and drawing predictions')
+predictions = torch.zeros(loader.validation_size)
+targets = torch.zeros(loader.validation_size)
+for i = 1,loader.validation_size do
+    xlua.progress(i,loader.validation_size)
+    pred, target = feval_val()
+    predictions[i] = pred
+    targets[i] = target
+end
+
+gnuplot.figure()
+gnuplot.plot({{'targets', targets, '.'},{'predictions', predictions, '.'}})
+io.read()
 
 
 
