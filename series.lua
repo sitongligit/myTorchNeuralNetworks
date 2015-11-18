@@ -24,12 +24,13 @@ function sumOfSines(x)
 end
 
 
-function Loader.new(window_size)
+function Loader.new(batch_size, window_size)
     local self = {}
     setmetatable(self, Loader)
 
     -- data generation
     self.data = {}
+    self.batch_size = batch_size
     self.train_size = 50000
     self.validation_size = 10000
     self.data.train = sumOfSines(torch.range(1,self.train_size))
@@ -44,22 +45,26 @@ function Loader.new(window_size)
 end
 
 function Loader.nextTrain(self)
-    self.train_batch_counter = (self.train_batch_counter + 1) % (self.train_size - self.window_size) + 1
-    local x = self.data.train[{{self.train_batch_counter, self.train_batch_counter+self.window_size-1}}]
-    local y = self.data.train[self.train_batch_counter+self.window_size]
-    x = x:reshape(1, x:size(1))
-    y = torch.Tensor({y})
-    y = y:reshape(1, y:size(1))
+    local x = torch.zeros(self.batch_size, self.window_size)
+    local y = torch.zeros(self.batch_size,1)
+    for i = 1, self.batch_size do
+        self.train_batch_counter = (self.train_batch_counter + 1) % (self.train_size - self.window_size) + 1
+        x[i] = self.data.train[{{self.train_batch_counter, self.train_batch_counter+self.window_size-1}}]
+        y[i] = self.data.train[self.train_batch_counter+self.window_size]
+    end
+    y = y:reshape(y:size(1),1)
     return x,y
 end
 
 function Loader.nextValidation(self)
-    self.validation_counter = (self.validation_counter + 1) % (self.validation_size - self.window_size) + 1
-    local x = self.data.train[{{self.validation_counter, self.validation_counter+self.window_size-1}}]
-    local y = self.data.train[self.validation_counter+self.window_size]
-    x = x:reshape(1, x:size(1))
-    y = torch.Tensor({y})
-    y = y:reshape(1, y:size(1))
+    local x = torch.zeros(self.batch_size, self.window_size)
+    local y = torch.zeros(self.batch_size, 1)
+    for i = 1, self.batch_size do
+        self.validation_counter = (self.validation_counter + 1) % (self.validation_size - self.window_size) + 1
+        x[i] = self.data.train[{{self.validation_counter, self.validation_counter+self.window_size-1}}]
+        y[i] = self.data.train[self.validation_counter+self.window_size]
+    end
+    y = y:reshape(y:size(1),1)
     return x,y
 end
 

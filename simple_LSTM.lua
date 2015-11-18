@@ -69,8 +69,8 @@ cmd:option('-learning_rate', 1e-4, 'Learning rate')
 cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
 cmd:option('-learning_rate_decay_after', 10, 'In number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate', 0.95, 'Decay rate for rmsprop')
-cmd:option('-batch_size', 1, 'Batch size')
-cmd:option('-max_epochs', 50000, 'Number of full passes through the training data')
+cmd:option('-batch_size', 4, 'Batch size')
+cmd:option('-max_epochs', 5000, 'Number of full passes through the training data')
 cmd:option('-dropout', 0.5, 'Dropout')
 cmd:option('-init_from', '', 'Initialize network parameters from checkpoint at this path')
 -- bookkeeping
@@ -97,7 +97,7 @@ protos.top:add(nn.Linear(opt.rnn_size, 1))
 protos.criterion = nn.MSECriterion()
 
 -- create the loader
-loader = Loader.new(opt.window_size)
+loader = Loader.new(opt.batch_size, opt.window_size)
 
 -- compbine all the params and do random inicialization
 params, grad_params = utils.combine_all_parameters(protos.lstm, protos.top)
@@ -123,8 +123,6 @@ local init_state_global = utils.clone_list(init_state)
 
 function feval_val()
 
-    count = 0
-
     -- get time series data
     x,y = loader:nextValidation()
 
@@ -133,15 +131,16 @@ function feval_val()
     -- go through all the time series
     for t = 1, opt.window_size do
         local input = x:select(2,t)
-        input = input:reshape(1,input:size(1))
-        lst = protos.clones.lstm[t]:forward{input, unpack(rnn_state[t-1])}
+        if input:dim() == 1 then input = input:reshape(1,input:size(1)) end
+
+        lst = protos.clones.lstm[t]:forward{input:t(), unpack(rnn_state[t-1])}
         rnn_state[t] = {}
         for i = 1, #init_state do table.insert(rnn_state[t], lst[i]) end
     end
 
-    prediction = protos.top:forward(lst[#lst])
+    predictions = protos.top:forward(lst[#lst])
 
-    return prediction, y
+    return predictions, y
 end
 
 
@@ -162,9 +161,13 @@ function feval(x)
     rnn_state = {[0] = init_state_global}
 
     for t = 1, opt.window_size do
+        -- get specific time-step
         local input = input:select(2,t)
-        input = input:reshape(1,input:size(1))
-        lst = protos.clones.lstm[t]:forward{input, unpack(rnn_state[t-1])}
+        if input:dim() == 1 then input = input:reshape(1,input:size(1)) end
+
+        -- forward propagate for every every time-step
+        -- note the curly braces around the function call (to return a table)
+        lst = protos.clones.lstm[t]:forward{input:t(), unpack(rnn_state[t-1])}
         rnn_state[t] = {}
         for i = 1, #init_state do table.insert(rnn_state[t], lst[i]) end
     end
@@ -226,10 +229,6 @@ for i = 1, opt.max_epochs do
         lloss = 0
         collectgarbage()
     end
-
-    if i%10 == 0 then
-        
-    end
 end
 
 tensored_loss = torch.zeros(#losses)
@@ -238,21 +237,25 @@ for i,l in ipairs(losses) do
 end
 
 gnuplot.figure()
-gnuplot.plot({'loss evolution', tensored_loss})
-io.read()
+gnuplot.plot({'loss evolution', tensored_loss, 'lines ls 1'})
 
 print('Validating and drawing predictions')
-predictions = torch.zeros(loader.validation_size)
-targets = torch.zeros(loader.validation_size)
+prediction = torch.zeros(loader.validation_size*opt.batch_size)
+gt = torch.zeros(loader.validation_size*opt.batch_size)
+
 for i = 1,loader.validation_size do
     xlua.progress(i,loader.validation_size)
-    pred, target = feval_val()
-    predictions[i] = pred
-    targets[i] = target
+    preds, targets = feval_val()
+
+    for j = 1,preds:size(1) do
+        local index = (i-1) * opt.batch_size + j
+        prediction[index] = preds:squeeze()[j]
+        gt[index] = targets:squeeze()[j]
+    end
 end
 
 gnuplot.figure()
-gnuplot.plot({{'targets', targets, '.'},{'predictions', predictions, '.'}})
+gnuplot.plot({{'targets', gt, 'lines ls 1'},{'predictions', prediction, 'lines ls 2'}})
 io.read()
 
 
