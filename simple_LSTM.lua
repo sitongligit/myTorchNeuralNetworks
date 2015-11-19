@@ -131,12 +131,12 @@ function LSTM.train(self)
 
         for t = 1, self.opt.window_size do
             -- get specific time-step
-            local input = input:select(2,t)
-            if input:dim() == 1 then input = input:reshape(1,input:size(1)) end
+            local input_t = input:select(input:dim(),t)
+            if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)) end
 
             -- forward propagate for every every time-step
             -- note the curly braces around the function call (to return a table)
-            lst = self.protos.clones.lstm[t]:forward{input:t(), unpack(rnn_state[t-1])}
+            lst = self.protos.clones.lstm[t]:forward{input_t:t(), unpack(rnn_state[t-1])}
             rnn_state[t] = {}
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
@@ -159,7 +159,7 @@ function LSTM.train(self)
 
         -- backward pass through time
         for t = self.opt.window_size, 1, -1 do
-            dlst = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(rnn_state[t-1])}, drnn_state[t])
+            dlst = self.protos.clones.lstm[t]:backward({input:select(input:dim(), t), unpack(rnn_state[t-1])}, drnn_state[t])
             drnn_state[t-1] = {}
             table.insert(drnn_state[t-1], dlst[2])
             table.insert(drnn_state[t-1], dlst[3])
@@ -202,7 +202,6 @@ function LSTM.train(self)
 
     gnuplot.figure()
     gnuplot.plot({'loss evolution', tensored_loss, 'lines ls 1'})
-    io.read()
 end
 
 
@@ -217,7 +216,7 @@ function LSTM.validate(self)
 
         -- go through all the time series
         for t = 1, self.opt.window_size do
-            local input = x:select(2,t)
+            local input = x:select(x:dim(),t)
             if input:dim() == 1 then input = input:reshape(1,input:size(1)) end
 
             lst = self.protos.clones.lstm[t]:forward{input:t(), unpack(rnn_state[t-1])}
@@ -225,6 +224,7 @@ function LSTM.validate(self)
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
 
+        -- propagate through the top layer the output of the last time-step
         predictions = self.protos.top:forward(lst[#lst])
 
         return predictions, y
@@ -241,9 +241,10 @@ function LSTM.validate(self)
 
         for j = 1,preds:size(1) do
             local index = (i-1) * self.opt.batch_size + j
-            prediction[index] = preds:squeeze()[j]
-            gt[index] = targets:squeeze()[j]
+            prediction[index] = preds[j]
+            gt[index] = targets[j]
         end
+
     end
 
     gnuplot.figure()

@@ -30,9 +30,10 @@ function Loader.new(batch_size, window_size)
 
     -- data generation
     self.data = {}
-    self.batch_size = batch_size
     self.train_size = 50000
     self.validation_size = 10000
+    self.batch_size = batch_size
+
     self.data.train = sumOfSines(torch.range(1,self.train_size))
     self.data.validation = sumOfSines(torch.range(self.train_size+1, self.train_size + self.validation_size))
 

@@ -1,4 +1,4 @@
-require 'Loader'
+
 require 'simple_LSTM'
 
 
@@ -6,7 +6,8 @@ require 'simple_LSTM'
 cmd = torch.CmdLine()
 -- model params
 cmd:option('-rnn_size', 5, 'Size of LSTM internal state')
-cmd:option('window_size',15,'window size to look into the series')
+cmd:option('-window_size',15,'window size to look into the series')
+cmd:option('-feature_dims',1,'features of the time-series')
 -- optimization
 cmd:option('-learning_rate', 1e-4, 'Learning rate')
 cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
@@ -34,14 +35,18 @@ opt = cmd:parse(arg or {})
 
 
 -- create a data loader
-loader = Loader.new(opt.batch_size, opt.window_size)
+if opt.feature_dims == 1 then
+    require 'Loader_series'
+    loader = Loader.new(opt.batch_size, opt.window_size)
+else
+    require 'Loader_multifeature_series'
+    loader = Loader.new(opt.feature_dims, opt.batch_size, opt.window_size)
+end
 
 -- create the lstm
 my_lstm = LSTM.new(loader, opt)
 
-print(my_lstm.opt)
-
-my_lstm:buildLSTM(1,1)
+my_lstm:buildLSTM(opt.feature_dims,1)
 
 -- train the lstm
 my_lstm:train()
