@@ -122,7 +122,7 @@ function LSTM.train(self)
         self.grad_params:zero()
 
         -- get training time series
-        -- TODO: 1D: num features, 2D: batch size, 3D: time dimension
+        -- 1D: batch size (z), 2D: num features (y), 3D: time dimension (x)
         input,y = self.loader:nextTrain()
 
         ------------ forward pass ------------
@@ -130,13 +130,13 @@ function LSTM.train(self)
         rnn_state = {[0] = self.init_state_global}
 
         for t = 1, self.opt.window_size do
-            -- get specific time-step
+            -- get specific time-step (select yields a batch_size x features matrix)
             local input_t = input:select(input:dim(),t)
             if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)) end
 
             -- forward propagate for every every time-step
             -- note the curly braces around the function call (to return a table)
-            lst = self.protos.clones.lstm[t]:forward{input_t:t(), unpack(rnn_state[t-1])}
+            lst = self.protos.clones.lstm[t]:forward{input_t, unpack(rnn_state[t-1])}
             rnn_state[t] = {}
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
@@ -219,13 +219,22 @@ function LSTM.validate(self)
             local input = x:select(x:dim(),t)
             if input:dim() == 1 then input = input:reshape(1,input:size(1)) end
 
-            lst = self.protos.clones.lstm[t]:forward{input:t(), unpack(rnn_state[t-1])}
+            -- print('Input:')
+            -- print(input)
+
+            lst = self.protos.clones.lstm[t]:forward{input, unpack(rnn_state[t-1])}
             rnn_state[t] = {}
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
 
         -- propagate through the top layer the output of the last time-step
         predictions = self.protos.top:forward(lst[#lst])
+
+        -- print('target:')
+        -- print(y)
+        -- print('Prediction:')
+        -- print(predictions)
+        -- io.read()
 
         return predictions, y
     end

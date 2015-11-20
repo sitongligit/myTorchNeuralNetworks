@@ -46,6 +46,8 @@ function Loader.new(batch_size, window_size)
 end
 
 function Loader.nextTrain(self)
+    -- data structure:
+    -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc)
     local x = torch.zeros(self.batch_size, self.window_size)
     local y = torch.zeros(self.batch_size,1)
     for i = 1, self.batch_size do
@@ -58,6 +60,8 @@ function Loader.nextTrain(self)
 end
 
 function Loader.nextValidation(self)
+    -- data structure:
+    -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc)
     local x = torch.zeros(self.batch_size, self.window_size)
     local y = torch.zeros(self.batch_size, 1)
     for i = 1, self.batch_size do
