@@ -267,15 +267,17 @@ function LSTM.validate(self, draw)
     end
     ------------------- evaluation function enclosure -------------------
 
-
     print('Validating')
+
+    local iterations = self.loader.validation_size / self.opt.batch_size
+
     if draw then
-        prediction = torch.zeros(self.loader.validation_size*self.opt.batch_size)
-        gt = torch.zeros(self.loader.validation_size*self.opt.batch_size)
+        prediction = torch.zeros(self.loader.validation_size)
+        gt = torch.zeros(self.loader.validation_size)
     end
 
-    for i = 1,self.loader.validation_size do
-        xlua.progress(i,self.loader.validation_size)
+    for i = 1,iterations do
+        xlua.progress(i,iterations)
         preds, targets, err = feval_val()
 
         if draw then
