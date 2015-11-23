@@ -20,7 +20,7 @@ end
 
 function sumOfSines(x)
     x = x/180*math.pi
-    return torch.sin(x) - torch.sin(x*math.pi/2) + torch.sin(x*3)
+    return torch.sin(x) - torch.sin(x*math.pi/2) + torch.sin(x*3) - torch.sin(x*torch.sin(x))
 end
 
 

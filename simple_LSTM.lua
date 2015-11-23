@@ -31,48 +31,79 @@ function LSTM.new(loader, params)
 end
 
 
-function createLSTM(input_size, rnn_size)
+function createLSTM(input_size, num_layers, rnn_size, dropout)
     -- private function to build the main LSTM architecture
     -- on top of this the top layer and criterion are supposed to be build
 
     local inputs = {}
-
-    -- inputs: x, previous cell state, previous hidden state
-    table.insert(inputs, nn.Identity()())
-    table.insert(inputs, nn.Identity()())
-    table.insert(inputs, nn.Identity()())
-
-    local x = inputs[1]
-    local prev_c = inputs[2]
-    local prev_h = inputs[3]
-
-    -- new input sum. connections: input --> hidden and hidden --> hidden
-    local i2h = nn.Linear(input_size, 4 * rnn_size)(x)
-    local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h)
-    local preactivations = nn.CAddTable()({i2h, h2h})
-
-    -- input
-    local in_chunk = nn.Narrow(2, 3 * rnn_size + 1, rnn_size)(preactivations)
-    local in_transform = nn.Tanh()(in_chunk)
-
-    -- gates
-    local pre_sigmoid_chunk = nn.Narrow(2, 1, 3 * rnn_size)(preactivations)
-    local all_gates = nn.Sigmoid()(pre_sigmoid_chunk)
-    local in_gate = nn.Narrow(2, 1, rnn_size)(all_gates)
-    local forget_gate = nn.Narrow(2, rnn_size + 1, rnn_size)(all_gates)
-    local out_gate = nn.Narrow(2, 2 * rnn_size + 1, rnn_size)(all_gates)
-
-    -- next carrousel state: transform current cell and gated out
-    local next_c = nn.CAddTable()({
-        nn.CMulTable()({forget_gate, prev_c}),
-        nn.CMulTable()({in_gate, in_transform})
-    })
-    local c_transform = nn.Tanh()(next_c)
-    local next_h = nn.CMulTable()({out_gate, c_transform})
-
     local outputs = {}
-    table.insert(outputs, next_c)
-    table.insert(outputs, next_h)
+
+    -- inputs: x
+    table.insert(inputs, nn.Identity()())
+    for l = 1, num_layers do
+        -- previous cell and hidden state for every layer l
+        table.insert(inputs, nn.Identity()())
+        table.insert(inputs, nn.Identity()())
+    end
+
+    print(inputs)
+
+    for l = 1, num_layers do
+
+        -- get previous cell and hidden states for this layer
+        local prev_c = inputs[l*2]
+        local prev_h = inputs[l*2+1]
+
+        -- inputs for this layer
+        local x
+        local input_size_l
+        if l == 1 then
+            x = inputs[1]
+            input_size_l = input_size
+        else
+            x = outputs[(l-1)*2]
+            input_size_l = rnn_size
+            -- dropout if applicable
+            if dropout > 0 then
+                x = nn.Dropout(dropout)(x)
+            end
+        end
+
+        -- new input sum
+        -- connections: input --> hidden and hidden --> hidden
+        local i2h = nn.Linear(input_size, 4 * rnn_size)(x):annotate{name='i2h_'..l}
+        local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h):annotate{name='h2h_'..l}
+        local preactivations = nn.CAddTable()({i2h, h2h})
+
+        -- get separate pre-activations to gates
+        local reshaped_preactivations = nn.Reshape(4, rnn_size)(preactivations)
+        local n1, n2, n3, n4 = nn.SplitTable(2)(reshaped_preactivations):split(4)
+        
+        -- decode gates
+        local in_gate = nn.Sigmoid()(n1)
+        local forget_gate = nn.Sigmoid(n2)
+        local out_gate = nn.Sigmoid(n3)
+
+        -- input
+        local in_transform = nn.Tanh()(n4)
+
+        -- next carrousel state: transform current cell and gated out
+        print(n1, n2, n3, n4)
+        print(forget_gate)
+        print(prev_c)
+        io.read()
+
+        local next_c = nn.CAddTable()({
+            nn.CMulTable()({forget_gate, prev_c}),
+            nn.CMulTable()({in_gate, in_transform})
+        })
+        local c_transform = nn.Tanh()(next_c)
+        local next_h = nn.CMulTable()({out_gate, c_transform})
+
+        table.insert(outputs, next_c)
+        table.insert(outputs, next_h)
+
+    end     -- end layer iteration
 
     return nn.gModule(inputs, outputs)
 end
@@ -94,7 +125,7 @@ end
 function LSTM.createRNN(self, input_size, output_size)
     -- create the model. Feed one input at a time (one value on the time series)
     self.protos = {}
-    self.protos.lstm = createLSTM(input_size,self.opt.rnn_size)
+    self.protos.lstm = createLSTM(input_size,self.opt.num_layers, self.opt.rnn_size, self.opt.dropout)
     self.protos.top = nn.Sequential()
     self.protos.top:add(nn.Linear(self.opt.rnn_size, output_size))
     self.protos.criterion = nn.MSECriterion()

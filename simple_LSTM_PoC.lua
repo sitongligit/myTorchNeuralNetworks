@@ -6,6 +6,7 @@ require 'simple_LSTM'
 cmd = torch.CmdLine()
 -- model params
 cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
+cmd:option('-num_layers', 1, 'Depth of the LSTM network')
 cmd:option('-window_size',15,'window size to look into the series')
 cmd:option('-feature_dims',1,'features of the time-series')
 -- optimization
