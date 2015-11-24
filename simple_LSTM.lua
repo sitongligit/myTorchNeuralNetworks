@@ -69,7 +69,7 @@ function createLSTM(input_size, num_layers, rnn_size, dropout)
 
         -- new input sum
         -- connections: input --> hidden and hidden --> hidden
-        local i2h = nn.Linear(input_size, 4 * rnn_size)(x):annotate{name='i2h_'..l}
+        local i2h = nn.Linear(input_size_l, 4 * rnn_size)(x):annotate{name='i2h_'..l}
         local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h):annotate{name='h2h_'..l}
         local preactivations = nn.CAddTable()({i2h, h2h})
 
@@ -129,7 +129,7 @@ function LSTM.createRNN(self, input_size, output_size)
         self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.opt.window_size)
     end
 
-    -- init the hidden state of the network for every unit (rnn_size x num_layers)
+    -- init the hidden state of the network
     print('Initiating hidden state...')
     self.init_state = {}
     local h_init = torch.zeros(self.opt.batch_size, self.opt.rnn_size)
@@ -170,19 +170,9 @@ function LSTM.train(self)
             local input_t = input:select(input:dim(),t)
             if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)):t() end
 
-            print('rnn state:')
-            print(unpack(rnn_state[t-1]))
-            print(#rnn_state[t-1])
-            print('input t:', input_t:size())
-            io.read()
-
             -- forward propagate for every every time-step
             -- note the curly braces around the function call (to return a table)
             lst = self.protos.clones.lstm[t]:forward{input_t, unpack(rnn_state[t-1])}
-
-            print(lst)
-            io.read()
-
             rnn_state[t] = {}
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
@@ -206,10 +196,13 @@ function LSTM.train(self)
         -- backward pass through time
         for t = self.opt.window_size, 1, -1 do
             dlst = self.protos.clones.lstm[t]:backward({input:select(input:dim(), t), unpack(rnn_state[t-1])}, drnn_state[t])
+
             drnn_state[t-1] = {}
-            for l = 1, self.opt.num_layers do
-                table.insert(drnn_state[t-1], dlst[2])
-                table.insert(drnn_state[t-1], dlst[3])
+            for k,v in ipairs(dlst) do
+                -- k == 1 is the gradient of the input (we don't use that by now...)
+                if k > 1 then 
+                    drnn_state[t-1][k-1] = v 
+                end
             end
         end
 
