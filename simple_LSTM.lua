@@ -13,7 +13,7 @@ LSTM = {}
 LSTM.__index = LSTM 
 
 
-function LSTM.new(loader, params)
+function LSTM.init(loader, params, input_size, top_layer, criterion)
     -- class metatable stuff
     local self = {}
     setmetatable(self, LSTM)
@@ -102,26 +102,15 @@ function createLSTM(input_size, num_layers, rnn_size, dropout)
 end
 
 
-function LSTM.saveModel(self, epoch)
-    print('Checkpointing. Calculating validation accuracy..')
-    local val_acc = 1 - self:validate()
-    local savefile = string.format('%s/%s_epoch%.2f_%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
-    print('Saving checkpoint to ' .. savefile .. '\n')
-    local checkpoint = {}
-    checkpoint.opt = self.opt
-    checkpoint.protos = protos
-    torch.save(savefile, checkpoint)
-end
 
-
-
-function LSTM.createRNN(self, input_size, output_size)
-    -- create the model. Feed one input at a time (one value on the time series)
+function LSTM.createRNN(self, input_size, top_layer, criterion)
+    -- create the LSTM core model
     self.protos = {}
     self.protos.lstm = createLSTM(input_size,self.opt.num_layers, self.opt.rnn_size, self.opt.dropout)
-    self.protos.top = nn.Sequential()
-    self.protos.top:add(nn.Linear(self.opt.rnn_size, output_size))
-    self.protos.criterion = nn.MSECriterion()
+
+    -- create the decoder, a top layer on top of the LSTM
+    self.protos.top = top_layer
+    self.protos.criterion = criterion
 
     -- clone states the proto LSTM
     if not self.protos.clones then
@@ -325,6 +314,18 @@ function LSTM.validate(self, draw)
     end
 
     return loss
+end
+
+
+function LSTM.saveModel(self, epoch)
+    print('Checkpointing. Calculating validation accuracy..')
+    local val_acc = 1 - self:validate()
+    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
+    print('Saving checkpoint to ' .. savefile .. '\n')
+    local checkpoint = {}
+    checkpoint.opt = self.opt
+    checkpoint.protos = protos
+    torch.save(savefile, checkpoint)
 end
 
 

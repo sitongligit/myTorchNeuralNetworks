@@ -6,18 +6,6 @@ Loader.__index = Loader
 
 
 
-
-function MackeyGlassEquation(X,gamma, beta, tau)
-    -- deafult params for the Mackey-Glass equation
-    local gamma = gamma or 1
-    local beta = beta or 2
-    local tau = tau or 2
-
-    -- solve the delayed differential equation using 4th order Runge-Kutta method
-    print('not implemented yet....')
-end
-
-
 function sumOfSines(x)
     x = x/180*math.pi
     return torch.sin(x) - torch.sin(x*math.pi/2) + torch.sin(x*3) - torch.sin(x*torch.sin(x))

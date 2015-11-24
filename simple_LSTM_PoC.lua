@@ -25,7 +25,7 @@ cmd:option('-train_file', 'data/train_data.t7', 'Path to features of training se
 cmd:option('-val_file', 'data/val_data.t7', 'Path to features of validation set')
 cmd:option('-data_dir', 'data', 'Data directory')
 cmd:option('-checkpoint_dir', 'checkpoints', 'Checkpoint directory')
-cmd:option('-savefile', 'simple_lstm', 'Filename to save checkpoint to')
+cmd:option('-savefile', 'multiple_sinus_lstm', 'Filename to save checkpoint to')
 -- gpu/cpu
 cmd:option('-gpuid', -1, '0-indexed id of GPU to use. -1 = CPU')
 
@@ -43,9 +43,18 @@ else
 end
 
 -- create the lstm
-my_lstm = LSTM.new(loader, opt)
+local output_size = 1
+local input_size = opt.feature_dims
 
-my_lstm:createRNN(opt.feature_dims,1)
+-- create the top layer for adding in top of the LSTM
+local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
+local criterion = nn.MSECriterion()
+
+-- create the LSTM handler class instance
+my_lstm = LSTM.init(loader, opt)
+
+-- create the network
+my_lstm:createRNN(input_size, top_layer, criterion)
 
 -- train the lstm
 my_lstm:train()
