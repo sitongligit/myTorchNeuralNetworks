@@ -46,8 +46,6 @@ function createLSTM(input_size, num_layers, rnn_size, dropout)
         table.insert(inputs, nn.Identity()())
     end
 
-    print(inputs)
-
     for l = 1, num_layers do
 
         -- get previous cell and hidden states for this layer
@@ -81,18 +79,13 @@ function createLSTM(input_size, num_layers, rnn_size, dropout)
         
         -- decode gates
         local in_gate = nn.Sigmoid()(n1)
-        local forget_gate = nn.Sigmoid(n2)
-        local out_gate = nn.Sigmoid(n3)
+        local forget_gate = nn.Sigmoid()(n2)
+        local out_gate = nn.Sigmoid()(n3)
 
         -- input
         local in_transform = nn.Tanh()(n4)
 
         -- next carrousel state: transform current cell and gated out
-        print(n1, n2, n3, n4)
-        print(forget_gate)
-        print(prev_c)
-        io.read()
-
         local next_c = nn.CAddTable()({
             nn.CMulTable()({forget_gate, prev_c}),
             nn.CMulTable()({in_gate, in_transform})
@@ -136,13 +129,14 @@ function LSTM.createRNN(self, input_size, output_size)
         self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.opt.window_size)
     end
 
-    -- init the hidden state of the network
+    -- init the hidden state of the network for every unit (rnn_size x num_layers)
     print('Initiating hidden state...')
     self.init_state = {}
     local h_init = torch.zeros(self.opt.batch_size, self.opt.rnn_size)
-    table.insert(self.init_state, h_init:clone())
-    table.insert(self.init_state, h_init:clone())
-
+    for l = 1,self.opt.num_layers do
+        table.insert(self.init_state, h_init:clone())
+        table.insert(self.init_state, h_init:clone())
+    end
     self.init_state_global = self.utils.clone_list(self.init_state)
 
     -- combine all the self.params and do random inicialization
@@ -176,9 +170,19 @@ function LSTM.train(self)
             local input_t = input:select(input:dim(),t)
             if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)):t() end
 
+            print('rnn state:')
+            print(unpack(rnn_state[t-1]))
+            print(#rnn_state[t-1])
+            print('input t:', input_t:size())
+            io.read()
+
             -- forward propagate for every every time-step
             -- note the curly braces around the function call (to return a table)
             lst = self.protos.clones.lstm[t]:forward{input_t, unpack(rnn_state[t-1])}
+
+            print(lst)
+            io.read()
+
             rnn_state[t] = {}
             for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
         end
@@ -203,8 +207,10 @@ function LSTM.train(self)
         for t = self.opt.window_size, 1, -1 do
             dlst = self.protos.clones.lstm[t]:backward({input:select(input:dim(), t), unpack(rnn_state[t-1])}, drnn_state[t])
             drnn_state[t-1] = {}
-            table.insert(drnn_state[t-1], dlst[2])
-            table.insert(drnn_state[t-1], dlst[3])
+            for l = 1, self.opt.num_layers do
+                table.insert(drnn_state[t-1], dlst[2])
+                table.insert(drnn_state[t-1], dlst[3])
+            end
         end
 
         -- clamp params to avoid the vanishing or exploding gradient problems 
