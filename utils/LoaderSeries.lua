@@ -1,8 +1,8 @@
 torch.setdefaulttensortype('torch.FloatTensor')
 
 
-Loader = {}
-Loader.__index = Loader
+LoaderSeries = {}
+LoaderSeries.__index = LoaderSeries
 
 
 
@@ -24,9 +24,9 @@ function sumOfSines(x)
 end
 
 
-function Loader.new(batch_size, window_size)
+function LoaderSeries.new(batch_size, window_size)
     local self = {}
-    setmetatable(self, Loader)
+    setmetatable(self, LoaderSeries)
 
     -- data generation
     self.data = {}
@@ -45,7 +45,7 @@ function Loader.new(batch_size, window_size)
     return self
 end
 
-function Loader.nextTrain(self)
+function LoaderSeries.nextTrain(self)
     -- data structure:
     -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc)
     local x = torch.zeros(self.batch_size, self.window_size)
@@ -59,7 +59,7 @@ function Loader.nextTrain(self)
     return x,y
 end
 
-function Loader.nextValidation(self)
+function LoaderSeries.nextValidation(self)
     -- data structure:
     -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc)
     local x = torch.zeros(self.batch_size, self.window_size)

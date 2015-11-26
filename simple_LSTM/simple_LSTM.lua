@@ -19,7 +19,7 @@ function LSTM.init(loader, params, input_size, top_layer, criterion)
     setmetatable(self, LSTM)
 
     -- require some utilities needed
-    self.utils = require 'misc'
+    self.utils = require '../utils/misc'
 
     -- copy all the parameters
     self.opt = params

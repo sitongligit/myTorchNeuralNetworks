@@ -36,11 +36,11 @@ opt = cmd:parse(arg or {})
 
 -- create a data loader
 if opt.feature_dims == 1 then
-    require 'Loader_series'
-    loader = Loader.new(opt.batch_size, opt.window_size)
+    require '../utils/LoaderSeries'
+    loader = LoaderSeries.new(opt.batch_size, opt.window_size)
 else
-    require 'Loader_multifeature_series'
-    loader = Loader.new(opt.feature_dims, opt.batch_size, opt.window_size)
+    require '../utils/LoaderMultifeatureSeries'
+    loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
 end
 
 -- create the lstm
