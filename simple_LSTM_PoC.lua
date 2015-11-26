@@ -10,6 +10,7 @@ cmd:option('-num_layers', 1, 'Depth of the LSTM network')
 cmd:option('-window_size',15,'window size to look into the series')
 cmd:option('-feature_dims',6,'features of the time-series')
 -- optimization
+cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
 cmd:option('-learning_rate', 1e-4, 'Learning rate')
 cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
 cmd:option('-learning_rate_decay_after', 10, 'In number of epochs, when to start decaying the learning rate')

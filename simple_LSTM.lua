@@ -104,6 +104,16 @@ end
 
 
 function LSTM.createRNN(self, input_size, top_layer, criterion)
+
+    print('Creating LSTM RNN:')
+    print('--------------------------------------------------------------')
+    print('      > Input size: '..input_size)
+    print('      > Number of layers: '..opt.num_layers)
+    print('      > Number of units per layer: '..opt.rnn_size)
+    print('      > Top layer: '..tostring(top_layer:get(1)))
+    print('      > Criterion: '..tostring(criterion))
+    print('--------------------------------------------------------------')
+
     -- create the LSTM core model
     self.protos = {}
     self.protos.lstm = createLSTM(input_size,self.opt.num_layers, self.opt.rnn_size, self.opt.dropout)
@@ -119,7 +129,6 @@ function LSTM.createRNN(self, input_size, top_layer, criterion)
     end
 
     -- init the hidden state of the network
-    print('Initiating hidden state...')
     self.init_state = {}
     local h_init = torch.zeros(self.opt.batch_size, self.opt.rnn_size)
     for l = 1,self.opt.num_layers do
@@ -130,13 +139,21 @@ function LSTM.createRNN(self, input_size, top_layer, criterion)
 
     -- combine all the self.params and do random inicialization
     self.params, self.grad_params = self.utils.combine_all_parameters(self.protos.lstm, self.protos.top)
-    print('Parameters: ' .. self.params:size(1))
     self.params:uniform(-0.08, 0.08)
 end
 
 
 
 function LSTM.train(self)
+
+    print('\n\nTraining network:')
+    print('--------------------------------------------------------------')
+    print('      > Optimization algorithm: '.. opt.opt_algorithm)
+    print('      > Total number of params: '.. self.params:size(1))
+    print('      > Learning rate: '.. opt.learning_rate)
+    print('      > Batch size: '.. opt.batch_size)
+    print('      > Max num. of epochs: '.. opt.max_epochs)
+    print('--------------------------------------------------------------')
 
     ------------------- evalutation function enclosure -------------------
     local function feval(x)
@@ -286,8 +303,6 @@ function LSTM.validate(self, draw)
     end
     ------------------- evaluation function enclosure -------------------
 
-    print('Validating')
-
     local iterations = self.loader.validation_size / self.opt.batch_size
 
     if draw then
@@ -296,7 +311,7 @@ function LSTM.validate(self, draw)
     end
 
     for i = 1,iterations do
-        xlua.progress(i,iterations)
+        -- xlua.progress(i,iterations)
         preds, targets, err = feval_val()
 
         if draw then
@@ -318,8 +333,9 @@ end
 
 
 function LSTM.saveModel(self, epoch)
-    print('Checkpointing. Calculating validation accuracy..')
+    print('\nCheckpointing. Calculating validation accuracy...')
     local val_acc = 1 - self:validate()
+    print('Accuracy: '..val_acc)
     local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
     print('Saving checkpoint to ' .. savefile .. '\n')
     local checkpoint = {}
