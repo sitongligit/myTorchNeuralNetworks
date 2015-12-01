@@ -9,8 +9,8 @@ require 'xlua'
 require 'gnuplot'
 
 
-LSTM = {}
-LSTM.__index = LSTM 
+local modularLSTM = {}
+modularLSTM.__index = modularLSTM 
 
 
 function createLSTM(input_size, num_layers, rnn_size, dropout)
@@ -80,14 +80,19 @@ function createLSTM(input_size, num_layers, rnn_size, dropout)
 
     end     -- end layer iteration
 
-    return nn.gModule(inputs, outputs)
+    local module =  nn.gModule(inputs, outputs)
+
+    graph.dot(module.fg, 'Forward Graph')
+    io.read()
+
+    return module
 end
 
 
-function LSTM.new(opt_params, input_size)
+function modularLSTM.new(opt_params, input_size)
     -- class metatable stuff
     local self = {}
-    setmetatable(self, LSTM)
+    setmetatable(self, modularLSTM)
 
     -- require some utilities needed
     self.utils = require '../utils/misc'
@@ -112,6 +117,7 @@ function LSTM.new(opt_params, input_size)
     self.init_state = {}
     local h_init = torch.zeros(self.opt.batch_size, self.opt.rnn_size)
     for l = 1,self.opt.num_layers do
+        -- previous cell and previous output
         table.insert(self.init_state, h_init:clone())
         table.insert(self.init_state, h_init:clone())
     end
@@ -121,7 +127,7 @@ function LSTM.new(opt_params, input_size)
 end
 
 
-function LSTM.forward(self, input)
+function modularLSTM.forward(self, input)
 
     ------------ forward pass ------------
     loss = 0
@@ -135,6 +141,7 @@ function LSTM.forward(self, input)
         -- forward propagate for every every time-step
         -- note the curly braces around the function call (to return a table)
         lst = self.protos.clones.lstm[t]:forward{input_t, unpack(rnn_state[t-1])}
+
         rnn_state[t] = {}
         for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
     end
@@ -144,7 +151,7 @@ function LSTM.forward(self, input)
 end
 
 
-function LSTM.backward(self, delta_output)
+function modularLSTM.backward(self, delta_output)
 
     ------------ backward pass ------------
     -- init the state of the lstm backward pass through time
@@ -170,21 +177,8 @@ function LSTM.backward(self, delta_output)
 end
 
 
---[[
-    REMOVE this function, it makes no sense to save only the core of the network
-]]
-function LSTM.saveModel(self, val_acc, epoch)
-    print('\nCheckpointing. Calculating validation accuracy...')
-    print('Accuracy: '..val_acc)
-    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
-    print('Saving checkpoint to ' .. savefile .. '\n')
-    local checkpoint = {}
-    checkpoint.opt = self.opt
-    checkpoint.protos = protos
-    torch.save(savefile, checkpoint)
-end
 
-
+return modularLSTM
 
 
 

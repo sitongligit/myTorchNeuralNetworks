@@ -1,6 +1,6 @@
 
-require 'modular_LSTM'
-
+modularLSTM = require 'modularLSTM'
+utils = require '../utils/misc'
 
 -- params
 cmd = torch.CmdLine()
@@ -37,7 +37,7 @@ opt = cmd:parse(arg or {})
 
 
 
-function validate(lstm, loader, draw)
+function validate(RNN, loader, draw)
 
     ------------------- evaluation function enclosure -------------------
     local function feval_val()
@@ -45,7 +45,7 @@ function validate(lstm, loader, draw)
         x,y = loader:nextValidation()
 
         -- forward through the lstm core
-        lstm:forward(x)
+        RNN.lstm:forward(x)
 
         -- propagate through the top layer the output of the last time-step
         predictions = RNN.top:forward(lst[#lst])
@@ -88,12 +88,12 @@ end
 
 
 
-function train(my_lstm, loader)
+function train(RNN, loader)
 
     print('\n\nTraining network:')
     print('--------------------------------------------------------------')
     print('      > Optimization algorithm: '.. opt.opt_algorithm)
-    print('      > Total number of params: '.. my_lstm.params:size(1))
+    print('      > Total LSTM number of params: '.. RNN.lstm.params:size(1))
     print('      > Learning rate: '.. opt.learning_rate)
     print('      > Batch size: '.. opt.batch_size)
     print('      > Max num. of epochs: '.. opt.max_epochs)
@@ -107,13 +107,13 @@ function train(my_lstm, loader)
         input, y = loader:nextTrain()
 
         -- get net params and reset gradients
-        if parameters ~= my_lstm.params then
-                my_lstm.params:copy(parameters)
+        if parameters ~= all_params then
+               all_params:copy(parameters)
         end
-        my_lstm.grad_params:zero()
+        all_grad_params:zero()
 
         -- forward pass
-        rnn_state, lst = my_lstm:forward(input)
+        rnn_state, lst = RNN.lstm:forward(input)
         
         -- forward through the last layer
         prediction = RNN.top:forward(lst[#lst])
@@ -125,10 +125,10 @@ function train(my_lstm, loader)
         dloss = RNN.criterion:backward(prediction, y)
         doutput_t = RNN.top:backward(lst[#lst], dloss)
 
-        my_lstm:backward(doutput_t)
+        RNN.lstm:backward(doutput_t)
         
 
-        return loss, my_lstm.grad_params
+        return loss, all_grad_params
     end
     ------------------- evaluation function enclosure -------------------
 
@@ -147,7 +147,9 @@ function train(my_lstm, loader)
 
         local epoch = i / num_batches
 
-        _,local_loss = optim.rmsprop(feval, my_lstm.params, optim_state)
+        all_params, all_grad_params = utils.combine_all_parameters(RNN.lstm.protos.lstm, RNN.top)
+
+        _,local_loss = optim.rmsprop(feval, all_params, optim_state)
         losses[#losses + 1] = local_loss[1]
         lloss = lloss + local_loss[1]
 
@@ -171,8 +173,8 @@ function train(my_lstm, loader)
 
         -- checkpoint: saving model
         if i % opt.save_every == 0 or i == iterations then
-            local val_err = validate(my_lstm, loader, false)
-            my_lstm:saveModel(1-val_err, epoch)
+            local val_err = validate(RNN, loader, false)
+            saveModel(RNN, 1-val_err, epoch)
         end        
 
     end
@@ -188,6 +190,21 @@ end
 
 
 
+--[[
+    -- FORGET BY NOW ABOUT PERSISTENCY...
+    -- Pendiente tambien guardar el loader y toda la informacion que pueda hacer falta
+]]
+function saveModel(RNN, val_acc, epoch)
+    print('\nCheckpointing. Calculating validation accuracy...')
+    print('Accuracy: '..val_acc)
+    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_acc)
+    print('Saving checkpoint to ' .. savefile .. '\n')
+    local checkpoint = {}
+    checkpoint.opt = opt
+    checkpoint.RNN = RNN
+    torch.save(savefile, checkpoint)
+end
+
 
 
 
@@ -195,48 +212,90 @@ end
 --                                MAIN BODY                              --
 ---------------------------------------------------------------------------
 
--- create a data loader
-if opt.feature_dims == 1 then
-    require '../utils/LoaderSeries'
-    loader = LoaderSeries.new(opt.batch_size, opt.window_size)
-else
-    require '../utils/LoaderMultifeatureSeries'
-    loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
+function main()
+    -- create a data loader
+    if opt.feature_dims == 1 then
+        require '../utils/LoaderSeries'
+        loader = LoaderSeries.new(opt.batch_size, opt.window_size)
+    else
+        require '../utils/LoaderMultifeatureSeries'
+        loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
+    end
+
+    -- create the lstm
+    local output_size = 1
+    local input_size = opt.feature_dims
+
+    -- create the LSTM core
+    local my_lstm = modularLSTM.new(opt,input_size)
+
+    -- create the top layer for adding in top of the LSTM network
+    local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
+    local criterion = nn.MSECriterion()
+
+    -- create the decoder, a top layer on top of the LSTM
+    RNN = {}
+    RNN.lstm = my_lstm
+    RNN.top = top_layer
+    RNN.criterion = criterion
+
+    print(RNN.top.parameters)
+    print(RNN.lstm.protos.lstm)
+    -- io.read()
+
+    print('Creating LSTM RNN:')
+    print('--------------------------------------------------------------')
+    print('      > Input size: '..input_size)
+    print('      > Output size: '..output_size)
+    print('      > Number of layers: '..opt.num_layers)
+    print('      > Number of units per layer: '..opt.rnn_size)
+    print('      > Top layer: '..tostring(top_layer:get(1)))
+    print('      > Criterion: '..tostring(criterion))
+    print('--------------------------------------------------------------')
+
+
+
+    -- train the lstm
+    train(RNN, loader)
+
+    -- evaluate the lstm
+    validate(RNN, loader, true)
+
+    io.read()
 end
 
--- create the lstm
-local output_size = 1
-local input_size = opt.feature_dims
 
--- create the LSTM core
-my_lstm = LSTM.new(opt,input_size)
+--[[
+    -- forget by now about persistency...
 
--- create the top layer for adding in top of the LSTM network
-local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
-local criterion = nn.MSECriterion()
+function loadTest()
+    -- create a data loader
+    if opt.feature_dims == 1 then
+        require '../utils/LoaderSeries'
+        loader = LoaderSeries.new(opt.batch_size, opt.window_size)
+    else
+        require '../utils/LoaderMultifeatureSeries'
+        loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
+    end
 
--- create the decoder, a top layer on top of the LSTM
-RNN = {}
-RNN.top = top_layer
-RNN.criterion = criterion
+    local checkpoint = torch.load('checkpoints/multiple_sinus_lstm_epoch=3_acc=0.9962.t7') 
+    local RNN = checkpoint.RNN
 
-print('Creating LSTM RNN:')
-print('--------------------------------------------------------------')
-print('      > Input size: '..input_size)
-print('      > Output size: '..output_size)
-print('      > Number of layers: '..opt.num_layers)
-print('      > Number of units per layer: '..opt.rnn_size)
-print('      > Top layer: '..tostring(top_layer:get(1)))
-print('      > Criterion: '..tostring(criterion))
-print('--------------------------------------------------------------')
+    print(checkpoint)
+    io.read()
+    print(RNN.lstm)
+    io.read()
 
+    -- evaluate the lstm
+    validate(RNN, loader, true)
+
+    io.read()
+end
 
 
--- train the lstm
-train(my_lstm, loader)
+loadTest()
+]]
 
--- evaluate the lstm
-validate(my_lstm, loader, true)
 
--- io.read()
 
+main()
