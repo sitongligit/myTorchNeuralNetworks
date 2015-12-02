@@ -2,12 +2,14 @@
 LSTM = require 'nnLSTM'
 utils = require '../utils/misc'
 
+require 'nngraph'
+
 -- params
 cmd = torch.CmdLine()
 -- model params
-cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
+cmd:option('-rnn_size', 81, 'Size of LSTM internal state')
 cmd:option('-num_layers', 1, 'Depth of the LSTM network')
-cmd:option('-time_steps',15,'window size to look into the series')
+cmd:option('-time_steps',81,'window size to look into the series')
 cmd:option('-input_size',1,'features of the time-series')
 -- optimization
 cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
@@ -28,7 +30,7 @@ cmd:option('-data_dir', 'data', 'Data directory')
 cmd:option('-checkpoint_dir', 'checkpoints', 'Checkpoint directory')
 cmd:option('-savefile', 'multiple_sinus_lstm', 'Filename to save checkpoint to')
 -- gpu/cpu
-cmd:option('-gpuid', -1, '1-indexed id of GPU to use. -1 = CPU')
+cmd:option('-gpuid', -1, '0-indexed id of GPU to use. -1 = CPU')
 
 -- argument parsing
 opt = cmd:parse(arg or {})
@@ -208,10 +210,10 @@ end
 function main()
     -- create a data loader
     if opt.input_size == 1 then
-        Loader = require '../utils/MackeyGlassLoader'
-        loader = Loader.new(opt.batch_size, opt.time_steps)
+        require '../utils/LoaderSeries'
+        loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
     else
-        LoaderMultifeatureSeries = require '../utils/LoaderMultifeatureSeries'
+        require '../utils/LoaderMultifeatureSeries'
         loader = LoaderMultifeatureSeries.new(opt.input_size, opt.batch_size, opt.time_steps)
     end
 
@@ -219,16 +221,19 @@ function main()
     local output_size = 1
     local input_size = opt.input_size
 
-    -- create the LSTM core
-    local my_lstm = LSTM.new(opt)
-
     -- create the top layer for adding in top of the LSTM network
-    local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
+    
     local criterion = nn.MSECriterion()
 
-    model = nn.Sequential()
-    model:add(my_lstm)
-    model:add(top_layer)
+    -- create the LSTM core & the CNN model
+    local inputs = nn.Identity()()
+    local lstm = LSTM.new(opt)(inputs)
+    local cnn_net = create_cnn_model()(lstm)
+    local net = nn.Linear(opt.rnn_size, 1)(cnn_net)
+
+    -- create the final model
+    model = nn.gModule({inputs}, {net})
+
 
     -- create the decoder, a top layer on top of the LSTM
     RNN = {}
@@ -242,7 +247,6 @@ function main()
     print('      > Output size: '..output_size)
     print('      > Number of layers: '..opt.num_layers)
     print('      > Number of units per layer: '..opt.rnn_size)
-    print('      > Top layer: '..tostring(top_layer:get(1)))
     print('      > Criterion: '..tostring(criterion))
     print('--------------------------------------------------------------')
 
@@ -259,26 +263,21 @@ end
 
 
 
-function newBehavoiur()
-    -- get data loader
-    require '../utils/LoaderSeries'
-    loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
-
-    -- create the core LSTM
-    lstm = LSTM.new(opt)
-
-    -- create the complete RNN model 
-    net = nn.Sequential()
-    net:add(lstm)
-    net:add(nn.Linear(opt.rnn_size, 1))
-
-    print(net)
-
-    output = net:forward(loader:nextTrain())
-    print(output)
+function create_cnn_model()
+    -- building the network:
+    local model = nn.Sequential()
+    model:add(nn.Reshape(1,9,9))
+    -- layer 1:
+    model:add(nn.SpatialConvolution(1,16,2,2))          -- 16 x 8 x 8
+    model:add(nn.Tanh())
+    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 16 x 4 x 4
+    model:add(nn.Reshape(16*4*4))
+    model:add(nn.Linear(16*4*4,opt.rnn_size))
+    model:add(nn.Tanh())
+    model:add(nn.Linear(opt.rnn_size, opt.rnn_size))
+    
+    return model
 end
-
-
 
 
 

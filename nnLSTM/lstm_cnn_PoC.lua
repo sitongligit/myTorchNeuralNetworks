@@ -208,7 +208,7 @@ end
 function main()
     -- create a data loader
     if opt.input_size == 1 then
-        require '../utils/LoaderSeries'
+        LoaderSeries = require '../utils/MackeyGlassLoader'
         loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
     else
         require '../utils/LoaderMultifeatureSeries'
@@ -230,6 +230,11 @@ function main()
     model:add(my_lstm)
     model:add(top_layer)
     model:add(create_cnn_model())
+
+    -- for i,module in ipairs(my_lstm.protos.lstm:listModules()) do
+    --     print(module)
+    -- end
+    -- io.read()
 
     -- create the decoder, a top layer on top of the LSTM
     RNN = {}

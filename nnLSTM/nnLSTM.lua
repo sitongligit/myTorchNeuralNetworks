@@ -2,6 +2,8 @@ torch.setdefaulttensortype('torch.FloatTensor')
 
 
 require 'nn'
+require 'cunn'
+require 'cutorch'
 require 'nngraph'
 require 'optim'
 require 'xlua'
@@ -20,8 +22,11 @@ function LSTM:__init(opt)
 
     self.opt = opt
 
-   -- create the network
-   self:createLSTM(opt.input_size, opt.num_layers, opt.rnn_size, opt.dropout)
+    -- set GPU
+    self:setDevice(opt.gpuid)
+
+    -- create the network
+    self:createLSTM(opt.input_size, opt.num_layers, opt.rnn_size, opt.dropout)
 
 end
  
@@ -31,6 +36,10 @@ function LSTM:updateOutput(input)
     -- as the LSTM is wrapped in nngraph module the forwardThroughTime function
     -- also calles the updateOutput for every piece in the LSTM.
     -- In this way there is no need to code this for every component.
+
+    -- ship to GPU if 
+    if self.opt.cuda_enabled then input = input:cuda() end
+
     hidden_states, output = self:forwardThroughTime(input)
     self.output = output
     return output
@@ -43,6 +52,13 @@ function LSTM:updateGradInput(input, gradOutput)
     -- also calles the updateGradInput and accGradParameters for every piece in
     -- the LSTM.
     -- In this way there is no need to code this for every component.
+
+    -- ship to the GPU if required
+    if self.opt.cuda_enabled then 
+        input = input:cuda()
+        gradOutput = gradOutput:cuda()
+    end
+
     _, gradInput = self:backwardThroughTime(input, gradOutput)
     self.gradInput = gradInput
     return gradInput
@@ -128,7 +144,26 @@ end
 
 
 
+--------------------------------------------------------------------------
+--                          GPU related METHODS                         --
+--------------------------------------------------------------------------
 
+
+function LSTM:setDevice(gpuid)
+    if gpuid ~= -1 then
+
+        -- set flag
+        self.cuda_enabled = true
+
+       -- save setDevice
+       if (cutorch.getDevice() ~= gpuid) then
+          cutorch.setDevice(gpuid)
+       end
+
+    else
+        self.cuda_enabled = false
+    end
+end
 
 
 
@@ -147,7 +182,6 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
     self.params, self.grad_params = self.utils.combine_all_parameters(self.protos.lstm)
     self.params:uniform(-0.08, 0.08)
 
-
     -- clone states of the proto LSTM
     self.protos.clones = {}
     self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.opt.time_steps)
@@ -160,6 +194,16 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
         table.insert(self.init_state, h_init:clone())
     end
     self.init_state_global = self.utils.clone_list(self.init_state)
+
+    -- ship everything to the GPU if required
+    if self.opt.cuda_enabled then
+        self.params = self.params:cuda()
+        self.protos.lstm = self.protos.lstm:cuda()
+        self.init_state = self.init_state:cuda()
+        self.init_state_global = self.init_state_global:cuda()
+    end
+
+
 end
 
 
@@ -174,8 +218,8 @@ function createProtoLSTM(input_size, num_layers, rnn_size, dropout)
     table.insert(inputs, nn.Identity()())
     for l = 1, num_layers do
         -- previous cell and hidden state for every layer l
-        table.insert(inputs, nn.Identity()())
-        table.insert(inputs, nn.Identity()())
+        table.insert(inputs, nn.Identity()())       -- x(t)
+        table.insert(inputs, nn.Identity()())       -- h(t-1)
     end
 
     for l = 1, num_layers do
@@ -200,22 +244,22 @@ function createProtoLSTM(input_size, num_layers, rnn_size, dropout)
         end
 
         -- new input sum
-        -- connections: input --> hidden and hidden --> hidden
+        -- connections: input --> hidden & hidden --> hidden
         local i2h = nn.Linear(input_size_l, 4 * rnn_size)(x):annotate{name='i2h_'..l}
         local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h):annotate{name='h2h_'..l}
         local preactivations = nn.CAddTable()({i2h, h2h})
 
         -- get separate pre-activations to gates
         local reshaped_preactivations = nn.Reshape(4, rnn_size)(preactivations)
-        local n1, n2, n3, n4 = nn.SplitTable(2)(reshaped_preactivations):split(4)
+        local ig, fg, og, it = nn.SplitTable(2)(reshaped_preactivations):split(4)
         
         -- decode gates
-        local in_gate = nn.Sigmoid()(n1)
-        local forget_gate = nn.Sigmoid()(n2)
-        local out_gate = nn.Sigmoid()(n3)
+        local in_gate = nn.Sigmoid()(ig)
+        local forget_gate = nn.Sigmoid()(fg)
+        local out_gate = nn.Sigmoid()(og)
 
         -- input
-        local in_transform = nn.Tanh()(n4)
+        local in_transform = nn.Tanh()(it)
 
         -- next carrousel state: transform current cell and gated out
         local next_c = nn.CAddTable()({
