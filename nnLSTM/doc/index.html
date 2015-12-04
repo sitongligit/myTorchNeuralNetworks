@@ -1,0 +1,386 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<head>
+    <title>Reference</title>
+    <link rel="stylesheet" href="ldoc.css" type="text/css" />
+</head>
+<body>
+
+<div id="container">
+
+<div id="product">
+	<div id="product_logo"></div>
+	<div id="product_name"><big><b></b></big></div>
+	<div id="product_description"></div>
+</div> <!-- id="product" -->
+
+
+<div id="main">
+
+
+<!-- Menu -->
+
+<div id="navigation">
+<br/>
+<h1>ldoc</h1>
+
+
+<h2>Contents</h2>
+<ul>
+<li><a href="#Functions">Functions</a></li>
+</ul>
+
+
+<h2>Modules</h2>
+<ul class="$(kind=='Topics' and '' or 'nowrap'">
+  <li><strong>nnLSTM</strong></li>
+</ul>
+
+</div>
+
+<div id="content">
+
+<h1>Module <code>nnLSTM</code></h1>
+<p>LSTM nn module.</p>
+<p> Implements a LSTM network with variable number of layers
+ and number of neurons per layer. (Right now every layer has the same number of neurons)
+ Also provides the convinient forward and backward through time functions.
+ Internally uses *nn* and *nngraph* torch packages. This module inherits
+ from nn.Module therefore providing the capability to use it as any other nn
+ module and to build nngraphs with it.
+ For more info check:
+ https://github.com/torch/nn
+ and
+ https://github.com/torch/nngraph</p>
+
+
+<h2><a href="#Functions">Functions</a></h2>
+<table class="function_list">
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:__init">LSTM:__init (opt)</a></td>
+	<td class="summary">Creator function.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:updateOutput">LSTM:updateOutput (input)</a></td>
+	<td class="summary">Called by the nn.Module *forward* function.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:updateGradInput">LSTM:updateGradInput (input, gradOutput)</a></td>
+	<td class="summary">Called by the nn.Module *backward* function to update the gradients w.r.t the input.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:reset">LSTM:reset ()</a></td>
+	<td class="summary">Method to reset (zeroes) the parameters of the network.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:parameters">LSTM:parameters ()</a></td>
+	<td class="summary">Interface to the nn module parameters function.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:forwardThroughTime">LSTM:forwardThroughTime (input)</a></td>
+	<td class="summary">Propagates the input through time.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:backwardThroughTime">LSTM:backwardThroughTime (input, delta_output)</a></td>
+	<td class="summary">Back propagates the error signal through time.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:setDevice">LSTM:setDevice (gpuid)</a></td>
+	<td class="summary">Sets the nvidia GPU device if given or CPU otherwise</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#LSTM:createLSTM">LSTM:createLSTM (input_size, num_layers, rnn_size, dropout)</a></td>
+	<td class="summary">Creates the proto LSTM core module and the unroll over time.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#createProtoLSTM">createProtoLSTM (input_size, num_layers, rnn_size, dropout)</a></td>
+	<td class="summary">Private function to build the main LSTM architecture
+ the top layer and criterion are supposed to be build on top.</td>
+	</tr>
+</table>
+
+<br/>
+<br/>
+
+
+    <h2 class="section-header "><a name="Functions"></a>Functions</h2>
+
+    <dl class="function">
+    <dt>
+    <a name = "LSTM:__init"></a>
+    <strong>LSTM:__init (opt)</strong>
+    </dt>
+    <dd>
+    Creator function.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">opt</span>
+         Table with at least the following fileds:
+ rnn_size (num lstm cell per layer)
+ num_layers (number of hidden layers)
+ time_steps (by now fixed; sentence lenth)
+ gpuid (values in {-1, 1, 2, ...} = {CPU, GPU1, GPU2, ...})
+        </li>
+    </ul>
+
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:updateOutput"></a>
+    <strong>LSTM:updateOutput (input)</strong>
+    </dt>
+    <dd>
+    Called by the nn.Module *forward* function.
+ As the LSTM is wrapped in nngraph module the forwardThroughTime function
+ also calles the updateOutput for every piece in the LSTM.
+ In this way there is no need to code this for every component.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input</span>
+         Input to the LSTM network. Expect a tensor with an example per row.
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        A tensor with the output of the network
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <a href="index.html#LSTM:forwardThroughTime">forwardThroughTime</a>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:updateGradInput"></a>
+    <strong>LSTM:updateGradInput (input, gradOutput)</strong>
+    </dt>
+    <dd>
+    Called by the nn.Module *backward* function to update the gradients w.r.t the input.
+ As the LSTM is wrapped in a nngraph module, the backwardThroughTime function
+ also calles the updateGradInput and accGradParameters for every piece in
+ the LSTM. In this way there is no need to code this for every component.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input</span>
+         is the input to the LSTM network. Expectes a tensor with an example per row.
+        </li>
+        <li><span class="parameter">gradOutput</span>
+         is the gradient of the loss w.r.t the output. Expects a tensor.
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        a tensor with the gradient of the loss w.r.t the input.
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <a href="index.html#LSTM:backwardThroughTime">backwardThroughTime</a>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:reset"></a>
+    <strong>LSTM:reset ()</strong>
+    </dt>
+    <dd>
+    Method to reset (zeroes) the parameters of the network.
+
+
+
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:parameters"></a>
+    <strong>LSTM:parameters ()</strong>
+    </dt>
+    <dd>
+    Interface to the nn module parameters function.
+
+
+
+    <h3>Returns:</h3>
+    <ol>
+
+        two tensors, one for the flattened learnable parameters and
+ another for the gradients of the energy w.r.t to the learnable parameters.
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:forwardThroughTime"></a>
+    <strong>LSTM:forwardThroughTime (input)</strong>
+    </dt>
+    <dd>
+    Propagates the input through time.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input</span>
+         is the input to the LSTM network. Expect a tensor with an example per row.
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        two tensors. 1st the hidden state for every time step and the 2nd is the output
+ of the last time step.
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:backwardThroughTime"></a>
+    <strong>LSTM:backwardThroughTime (input, delta_output)</strong>
+    </dt>
+    <dd>
+    Back propagates the error signal through time.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input</span>
+         is the input to the LSTM network. Expect a tensor with an example per row.
+        </li>
+        <li><span class="parameter">delta_output</span>
+         is the error signals to back propagate backwards. Expect a tensor.
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        two tensors. 1st the gradient of the hidden state for every time step and the 2nd is the gradient
+ w.r.t. the input of the last time step.
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:setDevice"></a>
+    <strong>LSTM:setDevice (gpuid)</strong>
+    </dt>
+    <dd>
+    Sets the nvidia GPU device if given or CPU otherwise
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">gpuid</span>
+         Integer (1 indexed) or -1 if CPU
+        </li>
+    </ul>
+
+
+
+
+
+</dd>
+    <dt>
+    <a name = "LSTM:createLSTM"></a>
+    <strong>LSTM:createLSTM (input_size, num_layers, rnn_size, dropout)</strong>
+    </dt>
+    <dd>
+    Creates the proto LSTM core module and the unroll over time.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input_size</span>
+         integer to set the number of inputs to the network
+        </li>
+        <li><span class="parameter">num_layers</span>
+         integer to set the number of hidden layers of the network
+        </li>
+        <li><span class="parameter">rnn_size</span>
+         integer to set the number of LSTM neurons per layer
+        </li>
+        <li><span class="parameter">dropout</span>
+         real number to set the dropout of the network
+        </li>
+    </ul>
+
+
+
+
+
+</dd>
+    <dt>
+    <a name = "createProtoLSTM"></a>
+    <strong>createProtoLSTM (input_size, num_layers, rnn_size, dropout)</strong>
+    </dt>
+    <dd>
+    Private function to build the main LSTM architecture
+ the top layer and criterion are supposed to be build on top.
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">input_size</span>
+         integer to set the number of inputs to the network
+        </li>
+        <li><span class="parameter">num_layers</span>
+         integer to set the number of hidden layers of the network
+        </li>
+        <li><span class="parameter">rnn_size</span>
+         integer to set the number of LSTM neurons per layer
+        </li>
+        <li><span class="parameter">dropout</span>
+         real number to set the dropout of the network
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        LSTM ngraph module wrapping all the components.
+    </ol>
+
+
+
+
+</dd>
+</dl>
+
+
+</div> <!-- id="content" -->
+</div> <!-- id="main" -->
+<div id="about">
+<i>generated by <a href="http://github.com/stevedonovan/LDoc">LDoc 1.4.3</a></i>
+<i style="float:right;">Last updated 2015-12-04 15:23:57 </i>
+</div> <!-- id="about" -->
+</div> <!-- id="container" -->
+</body>
+</html>

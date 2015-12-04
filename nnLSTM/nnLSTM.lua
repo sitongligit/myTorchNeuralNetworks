@@ -1,3 +1,17 @@
+
+--- LSTM nn module. Implements a LSTM network with variable number of layers
+-- and number of neurons per layer. (Right now every layer has the same number of neurons)
+-- Also provides the convinient forward and backward through time functions.
+-- Internally uses *nn* and *nngraph* torch packages. This module inherits 
+-- from nn.Module therefore providing the capability to use it as any other nn
+-- module and to build nngraphs with it.
+-- For more info check:
+-- https://github.com/torch/nn
+-- and
+-- https://github.com/torch/nngraph
+
+
+
 torch.setdefaulttensortype('torch.FloatTensor')
 
 
@@ -14,7 +28,12 @@ require 'gnuplot'
 local LSTM = torch.class('nn.LSTM', 'nn.Module')
  
 
-
+--- Creator function.
+-- @param opt Table with at least the following fileds:
+-- rnn_size (num lstm cell per layer)
+-- num_layers (number of hidden layers)
+-- time_steps (by now fixed; sentence lenth)
+-- gpuid (values in {-1, 1, 2, ...} = {CPU, GPU1, GPU2, ...})
 function LSTM:__init(opt)
 
    -- require some utilities needed
@@ -30,15 +49,16 @@ function LSTM:__init(opt)
 
 end
  
-
+--- Called by the nn.Module *forward* function.
+-- As the LSTM is wrapped in nngraph module the forwardThroughTime function
+-- also calles the updateOutput for every piece in the LSTM.
+-- In this way there is no need to code this for every component.
+-- @param input Input to the LSTM network. Expect a tensor with an example per row.
+-- @return A tensor with the output of the network
+-- @see forwardThroughTime
 function LSTM:updateOutput(input)
-    -- this function is called by the nn.Module *forward* function.
-    -- as the LSTM is wrapped in nngraph module the forwardThroughTime function
-    -- also calles the updateOutput for every piece in the LSTM.
-    -- In this way there is no need to code this for every component.
-
     -- ship to GPU if 
-    if self.opt.cuda_enabled then input = input:cuda() end
+    if self.cuda_enabled then input = input:cuda() end
 
     hidden_states, output = self:forwardThroughTime(input)
     self.output = output
@@ -46,51 +66,67 @@ function LSTM:updateOutput(input)
 end
  
 
+--- Called by the nn.Module *backward* function to update the gradients w.r.t the input.
+-- As the LSTM is wrapped in a nngraph module, the backwardThroughTime function
+-- also calles the updateGradInput and accGradParameters for every piece in
+-- the LSTM. In this way there is no need to code this for every component.
+-- @param input is the input to the LSTM network. Expectes a tensor with an example per row.
+-- @param gradOutput is the gradient of the loss w.r.t the output. Expects a tensor.
+-- @return a tensor with the gradient of the loss w.r.t the input.
+-- @see backwardThroughTime
 function LSTM:updateGradInput(input, gradOutput)
-    -- this function is called by the nn.Module *backward* function.
-    -- as the LSTM is wrapped in a nngraph module, the backwardThroughTime function
-    -- also calles the updateGradInput and accGradParameters for every piece in
-    -- the LSTM.
-    -- In this way there is no need to code this for every component.
 
     -- ship to the GPU if required
-    if self.opt.cuda_enabled then 
+    if self.cuda_enabled then 
         input = input:cuda()
         gradOutput = gradOutput:cuda()
     end
 
     _, gradInput = self:backwardThroughTime(input, gradOutput)
     self.gradInput = gradInput
+
     return gradInput
 end
  
 
--- function LSTM:accGradParameters(input, gradOutput)
---     -- nothing done here by now...
--- end
- 
 
+ 
+--- Method to reset (zeroes) the parameters of the network.
 function LSTM:reset()
     self.protos.lstm:getParameters():zero()
 end
 
-
-function LSTM:getParameters()
-    return self.protos.lstm:getParameters()
-end
-
+--- Interface to the nn module parameters function. 
+-- @return two tensors, one for the flattened learnable parameters and
+-- another for the gradients of the energy w.r.t to the learnable parameters.
 function LSTM:parameters()
     return self.protos.lstm:parameters()
 end
 
 
+-- SHOULD NOT BE OVERRIDE --
+-- --- Function interface to the nn module getParamters function.
+-- -- @return a table with the learnable paramters and with the gradients of the network.
+-- function LSTM:getParameters()
+--     return self.protos.lstm:getParameters()
+-- end
+
+-- function LSTM:accGradParameters(input, gradOutput)
+--     -- nothing done here by now...
+-- end
+
+
 
 
 
 --------------------------------------------------------------------------
---                          HELPER FUNCTIONS                            --
+--                            BPTT FUNCTIONS                            --
 --------------------------------------------------------------------------
 
+--- Propagates the input through time.
+-- @param input is the input to the LSTM network. Expect a tensor with an example per row.
+-- @return two tensors. 1st the hidden state for every time step and the 2nd is the output
+-- of the last time step.
 function LSTM:forwardThroughTime(input)
 
     ------------ forward pass ------------
@@ -114,6 +150,11 @@ function LSTM:forwardThroughTime(input)
 end
 
 
+--- Back propagates the error signal through time.
+-- @param input is the input to the LSTM network. Expect a tensor with an example per row.
+-- @param delta_output is the error signals to back propagate backwards. Expect a tensor.
+-- @return two tensors. 1st the gradient of the hidden state for every time step and the 2nd is the gradient
+-- w.r.t. the input of the last time step.
 function LSTM:backwardThroughTime(input, delta_output)
 
     ------------ backward pass ------------
@@ -123,6 +164,7 @@ function LSTM:backwardThroughTime(input, delta_output)
 
     -- backward pass through time
     for t = self.opt.time_steps, 1, -1 do
+
         gradInput = self.protos.clones.lstm[t]:backward({input:select(input:dim(), t), unpack(rnn_state[t-1])}, drnn_state[t])
 
         drnn_state[t-1] = {}
@@ -148,7 +190,8 @@ end
 --                          GPU related METHODS                         --
 --------------------------------------------------------------------------
 
-
+--- Sets the nvidia GPU device if given or CPU otherwise
+-- @param gpuid Integer (1 indexed) or -1 if CPU
 function LSTM:setDevice(gpuid)
     if gpuid ~= -1 then
 
@@ -171,7 +214,11 @@ end
 --                           FACTORY METHODS                            --
 --------------------------------------------------------------------------
 
-
+--- Creates the proto LSTM core module and the unroll over time.
+-- @param input_size integer to set the number of inputs to the network
+-- @param num_layers integer to set the number of hidden layers of the network 
+-- @param rnn_size integer to set the number of LSTM neurons per layer
+-- @param dropout real number to set the dropout of the network
 function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
 
     -- create the core LSTM network
@@ -196,20 +243,24 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
     self.init_state_global = self.utils.clone_list(self.init_state)
 
     -- ship everything to the GPU if required
-    if self.opt.cuda_enabled then
+    if self.cuda_enabled then
         self.params = self.params:cuda()
         self.protos.lstm = self.protos.lstm:cuda()
         self.init_state = self.init_state:cuda()
         self.init_state_global = self.init_state_global:cuda()
     end
-
-
 end
 
 
+--- Private function to build the main LSTM architecture
+-- the top layer and criterion are supposed to be build on top.
+-- @param input_size integer to set the number of inputs to the network
+-- @param num_layers integer to set the number of hidden layers of the network 
+-- @param rnn_size integer to set the number of LSTM neurons per layer
+-- @param dropout real number to set the dropout of the network
+-- @return LSTM ngraph module wrapping all the components.
 function createProtoLSTM(input_size, num_layers, rnn_size, dropout)
-    -- private function to build the main LSTM architecture
-    -- the top layer and criterion are supposed to be build on top
+
 
     local inputs = {}
     local outputs = {}

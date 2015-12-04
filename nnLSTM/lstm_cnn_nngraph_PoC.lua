@@ -2,12 +2,14 @@
 LSTM = require 'nnLSTM'
 utils = require '../utils/misc'
 
+require 'nngraph'
+
 -- params
 cmd = torch.CmdLine()
 -- model params
-cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
+cmd:option('-rnn_size', 81, 'Size of LSTM internal state')
 cmd:option('-num_layers', 1, 'Depth of the LSTM network')
-cmd:option('-time_steps',15,'window size to look into the series')
+cmd:option('-time_steps',81,'window size to look into the series')
 cmd:option('-input_size',1,'features of the time-series')
 -- optimization
 cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
@@ -208,7 +210,7 @@ end
 function main()
     -- create a data loader
     if opt.input_size == 1 then
-        LoaderSeries = require '../utils/MackeyGlassLoader'
+        require '../utils/LoaderSeries'
         loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
     else
         require '../utils/LoaderMultifeatureSeries'
@@ -219,22 +221,19 @@ function main()
     local output_size = 1
     local input_size = opt.input_size
 
-    -- create the LSTM core
-    local my_lstm = LSTM.new(opt)
-
     -- create the top layer for adding in top of the LSTM network
-    local connection_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, 28*28))
+    
     local criterion = nn.MSECriterion()
 
-    model = nn.Sequential()
-    model:add(my_lstm)
-    model:add(connection_layer)
-    model:add(create_cnn_model())
+    -- create the LSTM core & the CNN model
+    local inputs = nn.Identity()()
+    local lstm = LSTM.new(opt)(inputs)
+    local cnn_net = create_cnn_model()(lstm)
+    local net = nn.Linear(opt.rnn_size, 1)(cnn_net)
 
-    -- for i,module in ipairs(my_lstm.protos.lstm:listModules()) do
-    --     print(module)
-    -- end
-    -- io.read()
+    -- create the final model
+    model = nn.gModule({inputs}, {net})
+
 
     -- create the decoder, a top layer on top of the LSTM
     RNN = {}
@@ -248,13 +247,12 @@ function main()
     print('      > Output size: '..output_size)
     print('      > Number of layers: '..opt.num_layers)
     print('      > Number of units per layer: '..opt.rnn_size)
-    print('      > Connection layer: '..tostring(connection_layer:get(1)))
     print('      > Criterion: '..tostring(criterion))
     print('--------------------------------------------------------------')
 
 
     -- train the lstm
-    -- train(RNN, loader)
+    train(RNN, loader)
 
     -- evaluate the lstm
     validate(RNN, loader, true)
@@ -268,20 +266,15 @@ end
 function create_cnn_model()
     -- building the network:
     local model = nn.Sequential()
-    model:add(nn.Reshape(1,28,28))
+    model:add(nn.Reshape(1,9,9))
     -- layer 1:
-    model:add(nn.SpatialConvolution(1,16,5,5))          -- 16 x 24 x 24
+    model:add(nn.SpatialConvolution(1,16,2,2))          -- 16 x 8 x 8
     model:add(nn.Tanh())
-    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 16 x 12x 12
-    -- layer 2:
-    model:add(nn.SpatialConvolution(16,256,5,5))        -- 256 x 8 x 8
+    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 16 x 4 x 4
+    model:add(nn.Reshape(16*4*4))
+    model:add(nn.Linear(16*4*4,opt.rnn_size))
     model:add(nn.Tanh())
-    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 256 x 4 x 4       
-    -- layer 3 (2 fully connected neural nets):
-    model:add(nn.Reshape(256*4*4))
-    model:add(nn.Linear(256*4*4,200))
-    model:add(nn.Tanh())
-    model:add(nn.Linear(200,1))
+    -- model:add(nn.Linear(opt.rnn_size, opt.rnn_size))
     
     return model
 end
