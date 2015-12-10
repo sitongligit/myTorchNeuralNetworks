@@ -5,10 +5,10 @@
 -- Internally uses *nn* and *nngraph* torch packages. This module inherits 
 -- from nn.Module therefore providing the capability to use it as any other nn
 -- module and to build nngraphs with it.
--- For more info check:
--- https://github.com/torch/nn
--- and
--- https://github.com/torch/nngraph
+-- For more info check: <br>
+-- https://github.com/torch/nn <br>
+-- and <br>
+-- https://github.com/torch/nngraph <br>
 
 
 
@@ -21,7 +21,6 @@ require 'cutorch'
 require 'nngraph'
 require 'optim'
 require 'xlua'
-require 'gnuplot'
 
 
 
@@ -29,11 +28,14 @@ local LSTM = torch.class('nn.LSTM', 'nn.Module')
  
 
 --- Creator function.
--- @param opt Table with at least the following fileds:
--- rnn_size (num lstm cell per layer)
--- num_layers (number of hidden layers)
--- time_steps (by now fixed; sentence lenth)
--- gpuid (values in {-1, 1, 2, ...} = {CPU, GPU1, GPU2, ...})
+-- Called by the *new()* function of the parent class (nn.Module)
+-- @param opt Table with at least the following fileds: <br>
+-- <lu>
+-- <li> rnn_size: num lstm cell per layer </li> 
+-- <li> num_layers: number of hidden layers </li> 
+-- <li> time_steps: by now fixed; sentence lenth </li> 
+-- <li> gpuid: values in {-1, 1, 2, ...} = {CPU, GPU1, GPU2, ...} </li> 
+-- </lu>
 function LSTM:__init(opt)
 
    -- require some utilities needed
@@ -104,16 +106,18 @@ function LSTM:parameters()
 end
 
 
--- SHOULD NOT BE OVERRIDE --
+-- function LSTM:accGradParameters(input, gradOutput)
+--     -- nothing done here by now...
+-- end
+
+-- SHOULD NOT BE OVERRIDDEN --
 -- --- Function interface to the nn module getParamters function.
 -- -- @return a table with the learnable paramters and with the gradients of the network.
 -- function LSTM:getParameters()
 --     return self.protos.lstm:getParameters()
 -- end
 
--- function LSTM:accGradParameters(input, gradOutput)
---     -- nothing done here by now...
--- end
+
 
 
 

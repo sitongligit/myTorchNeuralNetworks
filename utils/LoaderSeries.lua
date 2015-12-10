@@ -5,7 +5,12 @@ local LoaderSeries = torch.class('LoaderSeries')
 
 function sumOfSines(x)
     x = x/180*math.pi
-    return torch.sin(x) - torch.sin(x*math.pi/2) + torch.sin(x*3)
+    local series = torch.sin(x) - torch.sin(x*math.pi/2) + torch.sin(x*3)
+
+    -- normalize the series so that all values fall between 0 and 1
+    local max = torch.max(series)
+    local min = torch.min(series)
+    return (series - max) / (max - min)
 end
 
 
@@ -14,7 +19,7 @@ function LoaderSeries:__init(batch_size, window_size)
     -- data generation
     self.data = {}
     self.train_size = 50000
-    self.validation_size = 10000
+    self.validation_size = 1000
     self.batch_size = batch_size
 
     self.data.train = sumOfSines(torch.range(1,self.train_size))
