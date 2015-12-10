@@ -1,4 +1,4 @@
-
+require 'gnuplot'
 LSTM = require 'nnLSTM'
 utils = require '../utils/misc'
 
@@ -8,7 +8,7 @@ cmd = torch.CmdLine()
 cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
 cmd:option('-num_layers', 1, 'Depth of the LSTM network')
 cmd:option('-time_steps',15,'window size to look into the series')
-cmd:option('-input_size',1,'features of the time-series')
+cmd:option('-input_size',3,'features of the time-series')
 -- optimization
 cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
 cmd:option('-learning_rate', 1e-4, 'Learning rate')
@@ -212,7 +212,7 @@ function main()
         loader = Loader.new(opt.batch_size, opt.time_steps)
     else
         LoaderMultifeatureSeries = require '../utils/LoaderMultifeatureSeries'
-        loader = LoaderMultifeatureSeries.new(opt.input_size, opt.batch_size, opt.time_steps)
+        loader = LoaderMultifeatureSeries.new(opt.batch_size, opt.time_steps, opt.input_size)
     end
 
     -- create the lstm

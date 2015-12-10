@@ -1,4 +1,4 @@
-
+require 'gnuplot'
 LSTM = require 'nnLSTM'
 utils = require '../utils/misc'
 
@@ -254,7 +254,7 @@ function main()
 
 
     -- train the lstm
-    -- train(RNN, loader)
+    train(RNN, loader)
 
     -- evaluate the lstm
     validate(RNN, loader, true)

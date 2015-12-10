@@ -2,6 +2,7 @@
 LSTM = require 'nnLSTM'
 utils = require '../utils/misc'
 
+require 'gnuplot'
 require 'nngraph'
 
 -- params

@@ -35,7 +35,7 @@ end
 
 function LoaderSeries:nextTrain()
     -- data structure:
-    -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc)
+    -- 1D (y): batch_size, 2D (x): time-steps (sentence size in words etc), 3D (z): features
     local x = torch.zeros(self.batch_size, self.window_size)
     local y = torch.zeros(self.batch_size,1)
     for i = 1, self.batch_size do

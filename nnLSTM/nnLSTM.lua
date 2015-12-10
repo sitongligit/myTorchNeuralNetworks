@@ -129,6 +129,7 @@ end
 
 --- Propagates the input through time.
 -- @param input is the input to the LSTM network. Expect a tensor with an example per row.
+-- (1D: batch, examples. 2D: time steps. 3D: features)
 -- @return two tensors. 1st the hidden state for every time step and the 2nd is the output
 -- of the last time step.
 function LSTM:forwardThroughTime(input)
@@ -139,7 +140,7 @@ function LSTM:forwardThroughTime(input)
 
     for t = 1, self.opt.time_steps do
         -- get specific time-step (select yields a batch_size x features matrix)
-        local input_t = input:select(input:dim(),t)
+        local input_t = input:select(2,t)
         if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)):t() end
 
         -- forward propagate for every every time-step
@@ -169,7 +170,7 @@ function LSTM:backwardThroughTime(input, delta_output)
     -- backward pass through time
     for t = self.opt.time_steps, 1, -1 do
 
-        gradInput = self.protos.clones.lstm[t]:backward({input:select(input:dim(), t), unpack(rnn_state[t-1])}, drnn_state[t])
+        gradInput = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(rnn_state[t-1])}, drnn_state[t])
 
         drnn_state[t-1] = {}
         for l,df_di in ipairs(gradInput) do
