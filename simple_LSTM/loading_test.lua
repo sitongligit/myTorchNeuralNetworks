@@ -34,33 +34,16 @@ cmd:option('-gpuid', -1, '0-indexed id of GPU to use. -1 = CPU')
 opt = cmd:parse(arg or {})
 
 
--- create a data loader
-if opt.feature_dims == 1 then
-    require '../utils/LoaderSeries'
-    loader = LoaderSeries.new(opt.batch_size, opt.window_size)
-else
-    require '../utils/LoaderMultifeatureSeries'
-    loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
-end
 
--- create the lstm
-local output_size = 1
-local input_size = opt.feature_dims
 
--- create the top layer for adding in top of the LSTM
-local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
-local criterion = nn.MSECriterion()
+-- laoder
+require '../utils/LoaderSeries'
+loader = LoaderSeries.new(opt.batch_size, opt.window_size)
 
--- create the LSTM handler class instance
-my_lstm = simpleLSTM.new(loader, opt)
+-- lstm loading
+my_lstm = simpleLSTM(loader, opt)
+my_lstm = my_lstm:loadModel('checkpoints/multiple_sinus_lstm_epoch=0_acc=0.9978.t7')
 
--- create the network
-my_lstm:createRNN(input_size, top_layer, criterion)
 
--- train the lstm
-my_lstm:train()
-
--- evaluate the lstm
 my_lstm:validate(true)
-
 io.read()

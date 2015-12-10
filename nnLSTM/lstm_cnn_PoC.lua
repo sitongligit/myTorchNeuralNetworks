@@ -1,14 +1,14 @@
 
-require 'modular_LSTM'
-
+LSTM = require 'nnLSTM'
+utils = require '../utils/misc'
 
 -- params
 cmd = torch.CmdLine()
 -- model params
 cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
 cmd:option('-num_layers', 1, 'Depth of the LSTM network')
-cmd:option('-window_size',15,'window size to look into the series')
-cmd:option('-feature_dims',1,'features of the time-series')
+cmd:option('-time_steps',15,'window size to look into the series')
+cmd:option('-input_size',1,'features of the time-series')
 -- optimization
 cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
 cmd:option('-learning_rate', 1e-4, 'Learning rate')
@@ -37,7 +37,7 @@ opt = cmd:parse(arg or {})
 
 
 
-function validate(lstm, loader, draw)
+function validate(RNN, loader, draw)
 
     ------------------- evaluation function enclosure -------------------
     local function feval_val()
@@ -45,15 +45,12 @@ function validate(lstm, loader, draw)
         x,y = loader:nextValidation()
 
         -- forward through the lstm core
-        lstm:forward(x)
-
-        -- propagate through the top layer the output of the last time-step
-        predictions = RNN.top:forward(lst[#lst])
+        output = RNN.model:forward(x)
 
         -- forward through the criterion
-        loss = RNN.criterion:forward(predictions, y)
+        loss = RNN.criterion:forward(output, y)
 
-        return predictions, y, loss
+        return output, y, loss
     end
     ------------------- evaluation function enclosure -------------------
 
@@ -88,16 +85,20 @@ end
 
 
 
-function train(my_lstm, loader)
+function train(RNN, loader)
 
     print('\n\nTraining network:')
     print('--------------------------------------------------------------')
     print('      > Optimization algorithm: '.. opt.opt_algorithm)
-    print('      > Total number of params: '.. my_lstm.params:size(1))
+    print('      > Total LSTM number of params: '.. RNN.model:getParameters():size(1))
     print('      > Learning rate: '.. opt.learning_rate)
     print('      > Batch size: '.. opt.batch_size)
     print('      > Max num. of epochs: '.. opt.max_epochs)
     print('--------------------------------------------------------------')
+
+
+    -- get params and gradient of the parameters
+    local params, grads = model:getParameters()
 
 
     ------------------- evalutation function enclosure -------------------
@@ -107,28 +108,22 @@ function train(my_lstm, loader)
         input, y = loader:nextTrain()
 
         -- get net params and reset gradients
-        if parameters ~= my_lstm.params then
-                my_lstm.params:copy(parameters)
+        if parameters ~= params then
+               params:copy(parameters)
         end
-        my_lstm.grad_params:zero()
+        grads:zero()
 
         -- forward pass
-        rnn_state, lst = my_lstm:forward(input)
-        
-        -- forward through the last layer
-        prediction = RNN.top:forward(lst[#lst])
+        output = RNN.model:forward(input)
 
         -- forward through the criterion
-        loss = RNN.criterion:forward(prediction, y)
+        loss = RNN.criterion:forward(output, y)
 
         -- loss and soft-max layer backward pass
-        dloss = RNN.criterion:backward(prediction, y)
-        doutput_t = RNN.top:backward(lst[#lst], dloss)
-
-        my_lstm:backward(doutput_t)
+        dloss = RNN.criterion:backward(output, y)
+        RNN.model:backward(input, dloss)
         
-
-        return loss, my_lstm.grad_params
+        return loss, grads
     end
     ------------------- evaluation function enclosure -------------------
 
@@ -147,7 +142,7 @@ function train(my_lstm, loader)
 
         local epoch = i / num_batches
 
-        _,local_loss = optim.rmsprop(feval, my_lstm.params, optim_state)
+        _,local_loss = optim.rmsprop(feval, params, optim_state)
         losses[#losses + 1] = local_loss[1]
         lloss = lloss + local_loss[1]
 
@@ -171,8 +166,8 @@ function train(my_lstm, loader)
 
         -- checkpoint: saving model
         if i % opt.save_every == 0 or i == iterations then
-            local val_err = validate(my_lstm, loader, false)
-            my_lstm:saveModel(1-val_err, epoch)
+            local val_err = validate(RNN, loader, false)
+            saveModel(RNN, 1-val_err, epoch)
         end        
 
     end
@@ -188,6 +183,21 @@ end
 
 
 
+function saveModel(RNN,acc,epoch)
+
+    -- some printing to sea evolution
+    print('\nCheckpointing...')
+    print('Accuracy: '.. acc )
+
+    -- saving model, loader and command options
+    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, acc)
+    print('Saving checkpoint to ' .. savefile .. '\n')
+    local checkpoint = {}
+    checkpoint.opt = opt
+    checkpoint.RNN = RNN
+    torch.save(savefile, checkpoint)
+end
+
 
 
 
@@ -195,48 +205,88 @@ end
 --                                MAIN BODY                              --
 ---------------------------------------------------------------------------
 
--- create a data loader
-if opt.feature_dims == 1 then
-    require '../utils/LoaderSeries'
-    loader = LoaderSeries.new(opt.batch_size, opt.window_size)
-else
-    require '../utils/LoaderMultifeatureSeries'
-    loader = LoaderMultifeatureSeries.new(opt.feature_dims, opt.batch_size, opt.window_size)
+function main()
+    -- create a data loader
+    if opt.input_size == 1 then
+        LoaderSeries = require '../utils/MackeyGlassLoader'
+        loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
+    else
+        require '../utils/LoaderMultifeatureSeries'
+        loader = LoaderMultifeatureSeries.new(opt.input_size, opt.batch_size, opt.time_steps)
+    end
+
+    -- create the lstm
+    local output_size = 1
+    local input_size = opt.input_size
+
+    -- create the LSTM core
+    local my_lstm = LSTM.new(opt)
+
+    -- create the top layer for adding in top of the LSTM network
+    local connection_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, 28*28))
+    local criterion = nn.MSECriterion()
+
+    model = nn.Sequential()
+    model:add(my_lstm)
+    model:add(connection_layer)
+    model:add(create_cnn_model())
+
+    -- for i,module in ipairs(my_lstm.protos.lstm:listModules()) do
+    --     print(module)
+    -- end
+    -- io.read()
+
+    -- create the decoder, a top layer on top of the LSTM
+    RNN = {}
+    RNN.model = model
+    RNN.criterion = criterion
+
+
+    print('Creating LSTM RNN:')
+    print('--------------------------------------------------------------')
+    print('      > Input size: '..input_size)
+    print('      > Output size: '..output_size)
+    print('      > Number of layers: '..opt.num_layers)
+    print('      > Number of units per layer: '..opt.rnn_size)
+    print('      > Connection layer: '..tostring(connection_layer:get(1)))
+    print('      > Criterion: '..tostring(criterion))
+    print('--------------------------------------------------------------')
+
+
+    -- train the lstm
+    -- train(RNN, loader)
+
+    -- evaluate the lstm
+    validate(RNN, loader, true)
+
+    io.read()
 end
 
--- create the lstm
-local output_size = 1
-local input_size = opt.feature_dims
-
--- create the LSTM core
-my_lstm = LSTM.new(opt,input_size)
-
--- create the top layer for adding in top of the LSTM network
-local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
-local criterion = nn.MSECriterion()
-
--- create the decoder, a top layer on top of the LSTM
-RNN = {}
-RNN.top = top_layer
-RNN.criterion = criterion
-
-print('Creating LSTM RNN:')
-print('--------------------------------------------------------------')
-print('      > Input size: '..input_size)
-print('      > Output size: '..output_size)
-print('      > Number of layers: '..opt.num_layers)
-print('      > Number of units per layer: '..opt.rnn_size)
-print('      > Top layer: '..tostring(top_layer:get(1)))
-print('      > Criterion: '..tostring(criterion))
-print('--------------------------------------------------------------')
 
 
 
--- train the lstm
-train(my_lstm, loader)
+function create_cnn_model()
+    -- building the network:
+    local model = nn.Sequential()
+    model:add(nn.Reshape(1,28,28))
+    -- layer 1:
+    model:add(nn.SpatialConvolution(1,16,5,5))          -- 16 x 24 x 24
+    model:add(nn.Tanh())
+    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 16 x 12x 12
+    -- layer 2:
+    model:add(nn.SpatialConvolution(16,256,5,5))        -- 256 x 8 x 8
+    model:add(nn.Tanh())
+    model:add(nn.SpatialAveragePooling(2,2,2,2))        -- 256 x 4 x 4       
+    -- layer 3 (2 fully connected neural nets):
+    model:add(nn.Reshape(256*4*4))
+    model:add(nn.Linear(256*4*4,200))
+    model:add(nn.Tanh())
+    model:add(nn.Linear(200,1))
+    
+    return model
+end
 
--- evaluate the lstm
-validate(my_lstm, loader, true)
 
--- io.read()
+
+main()
 

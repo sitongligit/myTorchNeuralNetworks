@@ -8,23 +8,21 @@ require 'optim'
 require 'xlua'
 require 'gnuplot'
 
+local class = require 'class'
+local simpleLSTM = class('simpleLSTM')
 
-LSTM = {}
-LSTM.__index = LSTM 
 
-
-function LSTM.init(loader, params, input_size, top_layer, criterion)
-    -- class metatable stuff
-    local self = {}
-    setmetatable(self, LSTM)
+function simpleLSTM:__init(loader, params)
 
     -- require some utilities needed
     self.utils = require '../utils/misc'
 
     -- copy all the parameters
+    print('Setting params')
     self.opt = params
 
     -- set the loader
+    print('Setting loader')
     self.loader = loader
 
     return self
@@ -103,7 +101,7 @@ end
 
 
 
-function LSTM.createRNN(self, input_size, top_layer, criterion)
+function simpleLSTM:createRNN(input_size, top_layer, criterion)
 
     print('Creating LSTM RNN:')
     print('--------------------------------------------------------------')
@@ -116,7 +114,7 @@ function LSTM.createRNN(self, input_size, top_layer, criterion)
 
     -- create the LSTM core model
     self.protos = {}
-    self.protos.lstm = createLSTM(input_size,self.opt.num_layers, self.opt.rnn_size, self.opt.dropout)
+    self.protos.lstm = createLSTM(input_size, self.opt.num_layers, self.opt.rnn_size, self.opt.dropout)
 
     -- create the decoder, a top layer on top of the LSTM
     self.protos.top = top_layer
@@ -144,7 +142,16 @@ end
 
 
 
-function LSTM.train(self)
+
+
+
+
+
+--------------------------------------------------------------------------
+--                       TRAINING AND TESTING                           --
+--------------------------------------------------------------------------
+
+function simpleLSTM:train()
 
     print('\n\nTraining network:')
     print('--------------------------------------------------------------')
@@ -274,7 +281,7 @@ function LSTM.train(self)
 end
 
 
-function LSTM.validate(self, draw)
+function simpleLSTM:validate(draw)
 
     ------------------- evaluation function enclosure -------------------
     local function feval_val()
@@ -332,19 +339,73 @@ function LSTM.validate(self, draw)
 end
 
 
-function LSTM.saveModel(self, epoch)
-    print('\nCheckpointing. Calculating validation accuracy...')
-    local val_acc = 1 - self:validate()
-    print('Accuracy: '..val_acc)
-    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
-    print('Saving checkpoint to ' .. savefile .. '\n')
-    local checkpoint = {}
-    checkpoint.opt = self.opt
-    checkpoint.protos = protos
-    torch.save(savefile, checkpoint)
+
+
+
+--------------------------------------------------------------------------
+--                       SETTERS AND GETTERS                            --
+--------------------------------------------------------------------------
+
+function simpleLSTM:setLoader(loader)
+    self.loader = loader
+end
+
+
+function simpleLSTM:setUtils(utils)
+    self.utils = utils
 end
 
 
 
 
+--------------------------------------------------------------------------
+--                              I/O FUNCTIONS                           --
+--------------------------------------------------------------------------
+
+--[[
+--
+-- FORGET BY NOW ABOUT PERSISTENCY...
+--
+
+function simpleLSTM:loadModel(model_path)
+    print('Loading checkpoint: '..model_path)
+    local checkpoint = torch.load(model_path)
+
+    -- retrieve options
+    self.opt = checkpoint.opt
+
+    -- get top layer and criterion to create the RNN
+    local top_layer = checkpoint.protos.top
+    local criterion = checkpoint.protos.criterion
+
+    -- create the lstm container
+    self:createRNN(self.opt.feature_dims, top_layer, criterion)
+
+    -- populate the LSTM with the checkpoint state
+    -- self.protos.lstm = checkpoint.protos.lstm
+
+    return self
+end
+]]
+
+
+function simpleLSTM:saveModel(epoch)
+    
+    local val_acc = (1 - self:validate())
+
+    -- some printing to sea evolution
+    print('\nCheckpointing. Calculating validation accuracy...')
+    print('Accuracy: '.. val_acc )
+
+    -- saving model, loader and command options
+    local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', self.opt.checkpoint_dir, self.opt.savefile, epoch, val_acc)
+    print('Saving checkpoint to ' .. savefile .. '\n')
+    local checkpoint = {}
+    checkpoint.opt = self.opt
+    checkpoint.protos = self.protos
+    torch.save(savefile, checkpoint)
+end
+
+
+return simpleLSTM
 

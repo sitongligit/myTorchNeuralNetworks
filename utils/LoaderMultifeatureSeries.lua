@@ -1,9 +1,9 @@
 torch.setdefaulttensortype('torch.FloatTensor')
 
 
-LoaderMultifeatureSeries = {}
-LoaderMultifeatureSeries.__index = LoaderMultifeatureSeries
 
+
+LoaderMultifeatureSeries = torch.class('LoaderMultifeatureSeries')
 
 
 function sumOfSines(x)
@@ -12,9 +12,7 @@ function sumOfSines(x)
 end
 
 
-function LoaderMultifeatureSeries.new(num_features, batch_size, window_size)
-    local self = {}
-    setmetatable(self, LoaderMultifeatureSeries)
+function LoaderMultifeatureSeries:__init(num_features, batch_size, window_size)
 
     -- data generation
     self.data = {}
@@ -33,7 +31,7 @@ function LoaderMultifeatureSeries.new(num_features, batch_size, window_size)
     return self
 end
 
-function LoaderMultifeatureSeries.nextTrain(self)
+function LoaderMultifeatureSeries:nextTrain()
     local x
     if self.num_features > 1 then  
         x = torch.zeros(self.batch_size, self.num_features, self.window_size)
@@ -64,7 +62,7 @@ function LoaderMultifeatureSeries.nextTrain(self)
     return x,y
 end
 
-function LoaderMultifeatureSeries.nextValidation(self)
+function LoaderMultifeatureSeries:nextValidation()
     local x
     if self.num_features > 1 then  
         x = torch.zeros(self.batch_size, self.num_features, self.window_size)
@@ -92,6 +90,8 @@ function LoaderMultifeatureSeries.nextValidation(self)
     return x,y
 end
 
+
+return LoaderMultifeatureSeries
 
 
 
