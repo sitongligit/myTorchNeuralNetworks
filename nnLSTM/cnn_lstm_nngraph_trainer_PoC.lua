@@ -1,4 +1,4 @@
-Trainer = require 'Trainer'
+Trainer = require '../utils/Trainer'
 LSTM = require 'nnLSTM'
 
 require 'nn'

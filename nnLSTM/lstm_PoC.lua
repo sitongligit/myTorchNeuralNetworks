@@ -7,7 +7,7 @@ cmd = torch.CmdLine()
 -- model params
 cmd:option('-rnn_size', 50, 'Size of LSTM internal state')
 cmd:option('-num_layers', 1, 'Depth of the LSTM network')
-cmd:option('-time_steps',15,'window size to look into the series')
+-- cmd:option('-time_steps',15,'window size to look into the series')
 cmd:option('-input_size',3,'features of the time-series')
 -- optimization
 cmd:option('-opt_algorithm', 'rmsprop','Optimization algorithm for the training pahse. {sgd, rmsprop}')
@@ -35,6 +35,8 @@ opt = cmd:parse(arg or {})
 
 
 
+
+loader_time_steps = 15
 
 
 function validate(RNN, loader, draw)
@@ -209,10 +211,10 @@ function main()
     -- create a data loader
     if opt.input_size == 1 then
         Loader = require '../utils/MackeyGlassLoader'
-        loader = Loader.new(opt.batch_size, opt.time_steps)
+        loader = Loader.new(opt.batch_size, loader_time_steps)
     else
         LoaderMultifeatureSeries = require '../utils/LoaderMultifeatureSeries'
-        loader = LoaderMultifeatureSeries.new(opt.batch_size, opt.time_steps, opt.input_size)
+        loader = LoaderMultifeatureSeries.new(opt.batch_size, loader_time_steps, opt.input_size)
     end
 
     -- create the lstm
@@ -262,7 +264,7 @@ end
 function newBehavoiur()
     -- get data loader
     require '../utils/LoaderSeries'
-    loader = LoaderSeries.new(opt.batch_size, opt.time_steps)
+    loader = LoaderSeries.new(opt.batch_size, loader_time_steps)
 
     -- create the core LSTM
     lstm = LSTM.new(opt)

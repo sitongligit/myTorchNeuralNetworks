@@ -24,7 +24,8 @@ local Trainer = torch.class('Trainer')
 -- <li> checkpoint_dir: path to the folder where to save the checkpoints. </li>
 -- <li> save_file: name which the chekpoints will be saved with. </li>
 -- </lu>
-function Trainer:__init(model, loader, opt)
+function Trainer:__init(model, loader, opt, type)
+    self.type = type or 'regression'
     self.opt = opt
     self.model = model
     self.loader = loader
@@ -64,6 +65,7 @@ function Trainer:train()
 
         -- forward pass
         output = self.model.nnet:forward(input)
+
 
         -- forward through the criterion
         loss = self.model.criterion:forward(output, y)
@@ -135,10 +137,13 @@ function Trainer:train()
     end
 
     -- plot the loss evolution
-    local tensored_loss = torch.Tensor(all_train_loss)
-    gnuplot.figure()
-    gnuplot.plot({'loss evolution', tensored_loss, 'lines ls 1'})
+    if self.type == 'regression' then
+        local tensored_loss = torch.Tensor(all_train_loss)
+        gnuplot.figure()
+        gnuplot.plot({'loss evolution', tensored_loss, 'lines ls 1'})
+    end
 end
+
 
 
 --- Validation function.

@@ -52,8 +52,9 @@ function LoaderMNIST:nextTrain()
     local range = {self.train_batch_counter, self.train_batch_counter+self.batch_size-1}
     local x = self.train_data.data[{range,{},{},{}}]
     local x = x:reshape(self.batch_size, 32*32):float()
-    -- labels
+    -- labels (return the 1-hot-encoding vector)
     local y = self.train_data.labels[{range}]:float()
+    -- y = oneHotEncode(y)
 
     -- update training batch pointer
     self.train_batch_counter = (self.train_batch_counter + self.batch_size) % (self.train_data.data:size(1) - self.batch_size) + 1
@@ -68,13 +69,28 @@ function LoaderMNIST:nextValidation()
     local range = {self.validation_batch_counter, self.validation_batch_counter+self.batch_size-1}
     local x = self.test_data.data[{range,{},{},{}}]
     local x = x:reshape(self.batch_size, 32*32):float()
-    -- labels
+    -- labels (return the 1-hot-encoding vector)
     local y = self.test_data.labels[{range}]:float()
+    -- y = oneHotEncode(y)
 
     -- update training batch pointer
     self.validation_batch_counter = (self.validation_batch_counter + self.batch_size) % (self.test_data.data:size(1) - self.batch_size) + 1
 
     return x,y
 end
+
+
+
+function oneHotEncode(labels)
+    local encoded_labels = torch.zeros(labels:size(1), 10)
+    for i = 1,labels:size(1) do
+        encoded_labels[i][labels[i]] = 1
+    end
+    return encoded_labels
+end
+
+
+
+
 
 return LoaderMNIST

@@ -26,7 +26,7 @@ cmd:option('-seed', 981723, 'Torch manual random number generator seed')
 cmd:option('-save_every', 5000, 'No. of iterations after which to checkpoint')
 cmd:option('-train_file', '', 'Path to features of training set')
 cmd:option('-val_file', '', 'Path to features of validation set')
-cmd:option('-data_dir', '/Users/josemarcos/Desktop/myTorchLSTM/data', 'Data directory')
+cmd:option('-data_dir', '/Users/josemarcos/Desktop/myTorchNeuralNetworks/data', 'Data directory')
 cmd:option('-checkpoint_dir', 'checkpoints', 'Checkpoint directory')
 cmd:option('-savefile', 'cnn_test', 'Filename to save checkpoint to')
 -- gpu/cpu
@@ -60,12 +60,14 @@ function getConf()
     for l = 1, opt.num_layers do
         layer_conf = {}
         layer_conf.in_planes = hidden_conf.layers[l-1].out_planes
-        layer_conf.out_planes = 32/l
-        layer_conf.kW = 2*l
-        layer_conf.kH = 2*l
+        layer_conf.out_planes = math.pow(16,l)
+        layer_conf.kW = 5
+        layer_conf.kH = 5
         layer_conf.dW = 2
         layer_conf.dH = 2
-        layer_conf.pooling_type = 'max'
+        layer_conf.pooling_type = 'average'
+        layer_conf.pkW = 2
+        layer_conf.pkH = 2
         hidden_conf.layers[l] = layer_conf
     end
     
@@ -84,19 +86,30 @@ end
 
 
 function main()
-    -- create a CNN core
-    local conf = getConf()
-    cnn = CNN.new(conf)
+    if opt.load_from ~= '' then
+        print('Loading model from: '..opt.load_from)
+        local checkpoint = torch.load(paths.concat(opt.checkpoint_dir, opt.load_from))
+        nnet = checkpoint.model.nnet
+        criterion = checkpoint.model.criterion
+    else
+        print('Creating model from scratch...')
+        -- create a CNN core
+        local conf = getConf()
+        cnn = CNN.new(conf)
 
-    -- add on top a softMax layer to classify digits
-    local nnet = nn.Sequential()
-    nnet:add(cnn)
-    nnet:add(nn.SoftMax())
+        -- create the model with a softMax layer to classify digits
+        nnet = nn.Sequential()
+        nnet:add(cnn)
+        nnet:add(nn.Linear(conf.output,10))
+        nnet:add(nn.LogSoftMax())
+
+        criterion = nn.ClassNLLCriterion()
+    end
 
     -- wrap together neural net + criterion
     model = {}
     model.nnet = nnet
-    model.criterion = nn.ClassNLLCriterion()
+    model.criterion = criterion
 
     -- train the system to lear how to identify MNIST digits
     -- get the loader

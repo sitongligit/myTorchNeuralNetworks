@@ -33,7 +33,6 @@ local LSTM = torch.class('nn.LSTM', 'nn.Module')
 -- <lu>
 -- <li> rnn_size: num lstm cell per layer </li> 
 -- <li> num_layers: number of hidden layers </li> 
--- <li> time_steps: by now fixed; sentence lenth </li> 
 -- <li> gpuid: values in {-1, 1, 2, ...} = {CPU, GPU1, GPU2, ...} </li> 
 -- </lu>
 function LSTM:__init(opt)
@@ -47,6 +46,7 @@ function LSTM:__init(opt)
     self:setDevice(opt.gpuid)
 
     -- create the network
+    self.time_steps = 1 -- this will force to copy the proto LSTM through time
     self:createLSTM(opt.input_size, opt.num_layers, opt.rnn_size, opt.dropout)
 
 end
@@ -63,6 +63,7 @@ function LSTM:updateOutput(input)
     if self.cuda_enabled then input = input:cuda() end
 
     hidden_states, output = self:forwardThroughTime(input)
+    self.hidden_states = hidden_states
     self.output = output
     return output
 end
@@ -134,24 +135,30 @@ end
 -- of the last time step.
 function LSTM:forwardThroughTime(input)
 
+    -- clone the proto lstm in function of the input size in time-steps...
+    local time_steps = input:size(2)
+    if self.time_steps ~= time_steps then
+        self.time_steps = time_steps
+        self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.time_steps)
+    end
     ------------ forward pass ------------
     loss = 0
-    rnn_state = {[0] = self.init_state_global}
+    self.rnn_state = {[0] = self.init_state_global}
 
-    for t = 1, self.opt.time_steps do
+    for t = 1, self.time_steps do
         -- get specific time-step (select yields a batch_size x features matrix)
         local input_t = input:select(2,t)
         if input_t:dim() == 1 then input_t = input_t:reshape(1,input_t:size(1)):t() end
 
         -- forward propagate for every every time-step
         -- note the curly braces around the function call (to return a table)
-        lst = self.protos.clones.lstm[t]:forward{input_t, unpack(rnn_state[t-1])}
-        rnn_state[t] = {}
-        for i = 1, #self.init_state do table.insert(rnn_state[t], lst[i]) end
+        lst = self.protos.clones.lstm[t]:forward{input_t, unpack(self.rnn_state[t-1])}
+        self.rnn_state[t] = {}
+        for i = 1, #self.init_state do table.insert(self.rnn_state[t], lst[i]) end
     end
 
     -- return all time-step states and the output
-    return rnn_state, lst[#lst]
+    return self.rnn_state, lst[#lst]
 end
 
 
@@ -164,13 +171,13 @@ function LSTM:backwardThroughTime(input, delta_output)
 
     ------------ backward pass ------------
     -- init the state of the lstm backward pass through time
-    drnn_state = {[self.opt.time_steps] = self.utils.clone_list(self.init_state, true)}
-    drnn_state[self.opt.time_steps][2] = delta_output
+    drnn_state = {[self.time_steps] = self.utils.clone_list(self.init_state, true)}
+    drnn_state[self.time_steps][2] = delta_output
 
     -- backward pass through time
-    for t = self.opt.time_steps, 1, -1 do
+    for t = self.time_steps, 1, -1 do
 
-        gradInput = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(rnn_state[t-1])}, drnn_state[t])
+        gradInput = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(self.rnn_state[t-1])}, drnn_state[t])
 
         drnn_state[t-1] = {}
         for l,df_di in ipairs(gradInput) do
@@ -234,9 +241,11 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
     self.params, self.grad_params = self.utils.combine_all_parameters(self.protos.lstm)
     self.params:uniform(-0.08, 0.08)
 
-    -- clone states of the proto LSTM
+    -- clone states of the proto LSTM (will be cloned dinamically)
     self.protos.clones = {}
-    self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.opt.time_steps)
+    -- new!
+    -- we don't unroll here in favor to a dinamically unroll
+    --self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.time_steps)
 
     -- init the hidden state of the network
     self.init_state = {}

@@ -43,6 +43,7 @@ function CNN:updateOutput(input)
     --      output = self.model:get(l):forward(output)
     --      print('Output size for layer '..l..':\n')
     --      print(output:size())
+    --      io.read()
     -- end
     -- self.output = output
 
@@ -108,7 +109,9 @@ end
 -- @param hidden Table specifying the number of hidden layers (num_layers) and for each layer 
 -- should contain the number of input planes or filters (in_planes), the number
 -- of output planes (out_planes), kernel size (kW,kH), step of the convolution (dW,dH) and
--- the amount of zeros to pad with the input planes (padW,padH) where are default to zero.
+-- the amount of zeros to pad with the input planes (padW,padH) where the default is zero.
+-- The same applies to the pooling kernel: size (pkW,pkH), step of the convolution (pdW,pdH) and
+-- the amount of zeros to pad with the input planes (ppadW,ppadH) where the default is zero.
 -- @return a nn CNN module
 function createSpatialCNN(input, hidden, output_size)
     -- as the loaders provide the input flatten, we reshize as an image
@@ -120,28 +123,46 @@ function createSpatialCNN(input, hidden, output_size)
 
     for l = 1, hidden.num_layers do
         -- hidden layer l configuration:
+
+        -- features configuration
         local input_planes = hidden.layers[l].in_planes
         local output_planes = hidden.layers[l].out_planes
+
+        -- convolution configuration
         local kW = hidden.layers[l].kW
         local kH = hidden.layers[l].kH
-        local dW = hidden.layers[l].dW or kW   -- stride of the pooling (default no overlap)
-        local dH = hidden.layers[l].dH or kH
+        local dW = hidden.layers[l].dW or 1   -- stride of the convolution
+        local dH = hidden.layers[l].dH or 1
         local padH = hidden.layers[l].padH or 0
         local padW = hidden.layers[l].padW or 0
 
+        -- pooling configuration
+        local pkW = hidden.layers[l].pkW
+        local pkH = hidden.layers[l].pkH
+        local pdW = hidden.layers[l].pdW or 1   -- stride of the pooling
+        local pdH = hidden.layers[l].pdH or 1
+        local ppadH = hidden.layers[l].ppadH or 0
+        local ppadW = hidden.layers[l].ppadW or 0
+
+
         -- create the set of layers
-        model:add(nn.SpatialConvolution(input_planes,output_planes,kW,kH))
+        model:add(nn.SpatialConvolution(input_planes,output_planes,kW,kH, dW, dH, padW, padH))
         model:add(nn.Tanh())
 
+        -- update the size of the output after the conv. operation
+        output_width  = torch.floor((output_width  + 2*padW - kW) / dW + 1)
+        output_height = torch.floor((output_height + 2*padH - kH) / dH + 1)
+
         if hidden.layers[l].pooling_type == 'average' then
-            model:add(nn.SpatialAveragePooling(kW,kH,dW,dH))
+            model:add(nn.SpatialAveragePooling(pkW,pkH, pdW, pdH, ppadW, ppadH))
         elseif hidden.layers[l].pooling_type == 'max' then 
-            model:add(nn.SpatialMaxPooling(kW,kH,dW,dH))
+            model:add(nn.SpatialMaxPooling(pkW,pkH, pdW, pdH, ppadW, ppadH))
         end
 
-        -- update the size of the output after the pooling operation 
-        output_width  = torch.floor((output_width  + 2*padW - kW ) / dW)
-        output_height = torch.floor((output_height + 2*padH - kH ) / dH)
+        -- update the size of the output after the conv. operation
+        output_width  = torch.floor((output_width  + 2*ppadW - pkW) / pdW + 1)
+        output_height = torch.floor((output_height + 2*ppadH - pkH) / pdH + 1)
+
     end
 
     -- linearize the output and connect to a fully connected MLP
