@@ -21,7 +21,7 @@ cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
 cmd:option('-learning_rate_decay_after', 3, 'In number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate', 0.95, 'Decay rate for rmsprop')
 cmd:option('-batch_size', 10, 'Batch size')
-cmd:option('-max_epochs', 5, 'Number of full passes through the training data')
+cmd:option('-max_epochs', 1, 'Number of full passes through the training data')
 cmd:option('-dropout', 0.5, 'Dropout')
 cmd:option('-load_from', '', 'Initialize network parameters from checkpoint at this path')
 -- bookkeeping
@@ -90,6 +90,13 @@ function main()
         local net = nn.Linear(opt.rnn_size, 1)(cnn_net)
         local criterion = nn.MSECriterion()
 
+        print('lstm params:')
+        print(lstm.data.module:getParameters():size())
+        print('cnn_net parameters:')
+        print(cnn_net.data.module:getParameters():size())
+        print('top layer params:')
+        print(net.data.module:getParameters():size())
+
         -- create the decoder, a top layer on top of the LSTM
         model = {}
         model.nnet = nn.gModule({inputs}, {net})
@@ -111,9 +118,17 @@ function main()
     print('--------------------------------------------------------------')
 
 
+    -- local previous_params, _ = model.nnet:getParameters()
+
     -- train the lstm
     trainer = Trainer.new(model, loader, opt)
     trainer:train()
+
+    -- local new_params, _ = model.nnet:getParameters()
+
+    -- print('Different parameters after training:')
+    -- print(new_params[previous_params:ne(new_params)]:size())
+    -- io.read()
 
     -- evaluate the lstm
     trainer:validate(true)

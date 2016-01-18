@@ -15,8 +15,8 @@ cmd:option('-learning_rate', 1e-4, 'Learning rate')
 cmd:option('-learning_rate_decay', 0.95, 'Learning rate decay')
 cmd:option('-learning_rate_decay_after', 10, 'In number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate', 0.95, 'Decay rate for rmsprop')
-cmd:option('-batch_size', 10, 'Batch size')
-cmd:option('-max_epochs', 5, 'Number of full passes through the training data')
+cmd:option('-batch_size', 1, 'Batch size')
+cmd:option('-max_epochs', 1, 'Number of full passes through the training data')
 cmd:option('-dropout', 0.5, 'Dropout')
 cmd:option('-init_from', '', 'Initialize network parameters from checkpoint at this path')
 -- bookkeeping
@@ -92,7 +92,7 @@ function train(RNN, loader)
     print('\n\nTraining network:')
     print('--------------------------------------------------------------')
     print('      > Optimization algorithm: '.. opt.opt_algorithm)
-    print('      > Total LSTM number of params: '.. RNN.model:getParameters():size(1))
+    print('      > Total Network number of params: '.. RNN.model:getParameters():size(1))
     print('      > Learning rate: '.. opt.learning_rate)
     print('      > Batch size: '.. opt.batch_size)
     print('      > Max num. of epochs: '.. opt.max_epochs)
@@ -101,6 +101,8 @@ function train(RNN, loader)
 
     -- get params and gradient of the parameters
     local params, grads = model:getParameters()
+
+    -- local old_params = params:clone()
 
 
     ------------------- evalutation function enclosure -------------------
@@ -111,7 +113,7 @@ function train(RNN, loader)
 
         -- get net params and reset gradients
         if parameters ~= params then
-               params:copy(parameters)
+            params:copy(parameters)
         end
         grads:zero()
 
@@ -123,6 +125,7 @@ function train(RNN, loader)
 
         -- loss and soft-max layer backward pass
         dloss = RNN.criterion:backward(output, y)
+
         RNN.model:backward(input, dloss)
         
         return loss, grads
@@ -145,6 +148,7 @@ function train(RNN, loader)
         local epoch = i / num_batches
 
         _,local_loss = optim.rmsprop(feval, params, optim_state)
+
         losses[#losses + 1] = local_loss[1]
         lloss = lloss + local_loss[1]
 
@@ -168,7 +172,7 @@ function train(RNN, loader)
 
         -- checkpoint: saving model
         if i % opt.save_every == 0 or i == iterations then
-            local val_err = validate(RNN, loader, false)
+            local val_err = validate(RNN, loader, true)
             saveModel(RNN, 1-val_err, epoch)
         end        
 
@@ -194,6 +198,7 @@ function saveModel(RNN,acc,epoch)
     -- saving model, loader and command options
     local savefile = string.format('%s/%s_epoch=%i_acc=%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, acc)
     print('Saving checkpoint to ' .. savefile .. '\n')
+
     local checkpoint = {}
     checkpoint.opt = opt
     checkpoint.RNN = RNN
@@ -232,6 +237,13 @@ function main()
     model:add(my_lstm)
     model:add(top_layer)
 
+    print('Parameters of the lstm:')
+    p = my_lstm:getParameters()
+    print(p:size())
+    print('top_layer parameters:')
+    p,_ = top_layer:getParameters()
+    print(p:size())
+
     -- create the decoder, a top layer on top of the LSTM
     RNN = {}
     RNN.model = model
@@ -248,13 +260,21 @@ function main()
     print('      > Criterion: '..tostring(criterion))
     print('--------------------------------------------------------------')
 
+    -- local previous_params, _ = RNN.model:getParameters()
 
     -- train the lstm
     train(RNN, loader)
 
+    local new_params, _ = RNN.model:getParameters()
+
+    -- print('Different parameters after training:')
+    -- print(new_params[previous_params:ne(new_params)]:size())
+    -- io.read()
+
     -- evaluate the lstm
     validate(RNN, loader, true)
 
+    print('finished, press any key to exit....')
     io.read()
 end
 

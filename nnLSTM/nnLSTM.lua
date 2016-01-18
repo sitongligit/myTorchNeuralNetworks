@@ -177,22 +177,24 @@ function LSTM:backwardThroughTime(input, delta_output)
     -- backward pass through time
     for t = self.time_steps, 1, -1 do
 
-        gradInput = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(self.rnn_state[t-1])}, drnn_state[t])
+        local dlst = self.protos.clones.lstm[t]:backward({input:select(2, t), unpack(self.rnn_state[t-1])}, drnn_state[t])
 
         drnn_state[t-1] = {}
-        for l,df_di in ipairs(gradInput) do
-            -- k == 1 is the gradient of the input (we don't use that by now...)
+        for l,df_di in pairs(dlst) do
+            -- l == 1 is the gradient of the input (we don't use that by now...)
             if l > 1 then 
                 drnn_state[t-1][l-1] = df_di
             end
         end
     end
 
-    -- clamp params to avoid the vanishing or exploding gradient problems 
-    _, lstm_dparams = self.protos.lstm:getParameters()
-    lstm_dparams:clamp(-5, 5)
+    -- BPTT
+    init_state_global = self.rnn_state[#self.rnn_state]
 
-    return drnn_state, lstm_dparams
+    -- clamp params to avoid the vanishing or exploding gradient problems
+    self.grad_params:clamp(-5, 5)
+
+    return drnn_state, self.grad_params
 end
 
 

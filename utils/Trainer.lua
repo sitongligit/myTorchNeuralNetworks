@@ -11,12 +11,15 @@ local Trainer = torch.class('Trainer')
 --- Initialization function.
 -- @param model struct with two fields. nnet: nn o nngraph model, criterion: any torch nn criterion.
 -- @param loader module to load each batch. Should provide the functions *nextTrain()* and *nextValidation()*
--- @param opt options table containing at least the next fields: <br>
+-- @param opt options table containing at least the next fields:
+-- @param type Type of problem {classification, regression}
+-- <br>
 -- <ul>
 -- <li> opt_algorithm: optimization algorithm name (by now only rmsprop)  </li>
 -- <li> learning_rate: integer in {0,1} </li>
 -- <li> decay_rate: learning rate decay rate. Integer in {0,1} which would multiply the learning rate after some
 -- time. </li>
+-- <li> learning_rate_decay_after: number of epochs before starting to decay the learning rate </li>
 -- <li> batch_size: integer determining the size of the batch. </li>
 -- <li> max_epochs: maximum number of epochs to train. Training could finish earlier if other stoppping criterion
 -- is reached. </li>
@@ -34,7 +37,18 @@ end
 
 
 --- Training function.
--- No argument should be provided
+-- Trains a neural network model during a maximum number of iterations 
+-- (iterations = max_epochs * batch_size)
+-- If a learning rate decay value less than 1 is provided, after 
+-- 'learning_rate_decay_after' epochs the learning rate would be decayed by 
+-- the 'decay_rate'.
+-- The function also saves a current state of the model every 'save_every' 
+-- number of epochs. Saving the current model and the options provided to the trainer.
+-- During the training process this functin also plots the training and validation error
+-- evolution allowing to prevent an overfitting by studying the error curves interaction.
+-- PENDING: Implement early stopping by 'convergence', ''upper bound accuracy' and 
+-- 'overfitting' by error comparison...
+-- @see saveModel
 function Trainer:train()
 
     print('\n\nTraining network:')
@@ -48,7 +62,7 @@ function Trainer:train()
 
 
     -- get params and gradient of the parameters
-    local params, grads = model.nnet:getParameters()
+    local params, grads = self.model.nnet:getParameters()
 
 
     ------------------- evalutation function enclosure -------------------
@@ -65,7 +79,6 @@ function Trainer:train()
 
         -- forward pass
         output = self.model.nnet:forward(input)
-
 
         -- forward through the criterion
         loss = self.model.criterion:forward(output, y)
@@ -147,7 +160,11 @@ end
 
 
 --- Validation function.
+-- Performs a forward pass over all the validation data to compute the loss
+-- value of the given model. If the draw value is set to true plots the current fit
+-- to the data. (Only possible fot regression problems)
 -- @param draw Boolean value to switch on/off the plotting of the prediction and the targets.
+-- @return The loss (real value) of the current model on the validation dataset.
 function Trainer:validate(draw)
 
     ------------------- evaluation function enclosure -------------------
@@ -195,7 +212,10 @@ function Trainer:validate(draw)
 end
 
 
---- Saves the model and the options given to the trainer
+--- Saves the model and the options given to the trainer in a t7 Torch format.
+-- A checkpoint is basicaly a table with two values: 'opt' and 'model'.
+-- The first containing the table with all the options given to the trainer and the former the model,
+-- depending on what format was the model provided in, this could be in a 'nngraph' or a 'nn' Torch form.
 -- @param acc Accuracy of the the current model. The name of the checkpoint reflect this accuracy.
 -- @param epoch Current epoch of the training process.
 function Trainer:saveModel(acc,epoch)
