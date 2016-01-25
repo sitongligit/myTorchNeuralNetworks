@@ -56,13 +56,45 @@ end
 -- also calles the updateOutput for every piece in the LSTM.
 -- In this way there is no need to code this for every component.
 -- @param input Input to the LSTM network. Expect a tensor with an example per row.
+-- @param initial_state is optional. If supplied, it will be used as state of lstm at time step -1. If not supplied zeros will be used.
 -- @return A tensor with the output of the network
 -- @see forwardThroughTime
-function LSTM:updateOutput(input)
-    -- ship to GPU if 
-    if self.cuda_enabled then input = input:cuda() end
+function LSTM:updateOutput(input, initial_state)
+    -- ship to GPU if
+    local initial_state = initial_state or nil
 
-    hidden_states, output = self:forwardThroughTime(input)
+    if self.cuda_enabled then
+
+        if torch.type(input) ~= "torch.CudaTensor" then
+
+            if torch.type(input) == "torch.FloatTensor" then
+                input = input:cuda()
+
+            elseif torch.type(input) == "torch.DoubleTensor" then
+                input = input:float():cuda()
+            else
+                error("input supplied to LSTM forward() is not a tensor; input type is: " .. torch.type(input))
+            end
+
+        end
+
+        if initial_state then
+            for k, v in pairs(initial_state) do
+                if torch.type(v) ~= "torch.CudaTensor" then
+
+                    if torch.type(v) == "torch.FloatTensor" then
+                        v = v:cuda()
+                    elseif torch.type(v) == "torch.DoubleTensor" then
+                        v = v:float():cuda()
+                    else
+                        error("element " .. k .. " of initial_state table supplied to LSTM forward() is not a tensor; element's type is: " .. torch.type(v))
+                    end
+                end
+            end
+        end
+    end
+
+    local hidden_states, output = self:forwardThroughTime(input, initial_state)
     self.hidden_states = hidden_states
     self.output = output
     return output
@@ -85,10 +117,14 @@ function LSTM:updateGradInput(input, gradOutput)
         gradOutput = gradOutput:cuda()
     end
 
-    _, gradInput = self:backwardThroughTime(input, gradOutput)
+    local gradParams,gradInput = self:backwardThroughTime(input, gradOutput)
     self.gradInput = gradInput
 
-    return gradInput
+    -- print('gradInput of the LSTM:')
+    -- print(gradInput)
+    -- io.read()
+
+    return gradParams
 end
  
 
@@ -100,18 +136,22 @@ function LSTM:reset()
 end
 
 --- Interface to the nn module parameters function. 
--- @return two tensors, one for the flattened learnable parameters and
--- another for the gradients of the energy w.r.t to the learnable parameters.
+-- @return two tables,  One for the learnable parameters {weights} and another for
+-- the gradients of the energy wrt to the learnable parameters {gradWeights}
 function LSTM:parameters()
     return self.protos.lstm:parameters()
 end
 
 
--- function LSTM:accGradParameters(input, gradOutput)
---     -- nothing done here by now...
--- end
+function LSTM:accGradParameters(input, gradOutput)
+    -- nothing done here by now...
+end
 
--- SHOULD NOT BE OVERRIDDEN --
+-- getParameters() SHOULD NOT BE OVERRIDDEN in any custom nn module--
+-- Custom modules should instead override parameters(...) which is, in turn, called by the present function.
+--This function will go over all the weights and gradWeights and make them view into a single tensor
+-- -- (one for weights and one for gradWeights). Since the storage of every weight and gradWeight is changed,
+-- -- this function should be called only once on a given network.
 -- --- Function interface to the nn module getParamters function.
 -- -- @return a table with the learnable paramters and with the gradients of the network.
 -- function LSTM:getParameters()
@@ -133,18 +173,21 @@ end
 -- (1D: batch, examples. 2D: time steps. 3D: features)
 -- @return two tensors. 1st the hidden state for every time step and the 2nd is the output
 -- of the last time step.
-function LSTM:forwardThroughTime(input)
+function LSTM:forwardThroughTime(input, initial_state)
 
     -- clone the proto lstm in function of the input size in time-steps...
     local time_steps = input:size(2)
-    if self.time_steps ~= time_steps then
+    -- if self.time_steps ~= time_steps then
         self.time_steps = time_steps
         self.protos.clones['lstm'] = self.utils.clone_many_times(self.protos.lstm, self.time_steps)
-    end
+    -- end
     ------------ forward pass ------------
-    loss = 0
-    self.rnn_state = {[0] = self.init_state_global}
 
+    local initial_state = initial_state or self.init_state
+
+    self.rnn_state = {[0] = initial_state }
+
+    local lst
     for t = 1, self.time_steps do
         -- get specific time-step (select yields a batch_size x features matrix)
         local input_t = input:select(2,t)
@@ -171,8 +214,12 @@ function LSTM:backwardThroughTime(input, delta_output)
 
     ------------ backward pass ------------
     -- init the state of the lstm backward pass through time
-    drnn_state = {[self.time_steps] = self.utils.clone_list(self.init_state, true)}
-    drnn_state[self.time_steps][2] = delta_output
+    local drnn_state = {[self.time_steps] = self.utils.clone_list(self.init_state, true)}
+    drnn_state[self.time_steps][#(drnn_state[self.time_steps])] = delta_output
+
+    -- variable to store he gradients w.r.t. the input
+    -- local input_t = input:select(2,1)
+    local gradInput = torch.zeros(input:size())
 
     -- backward pass through time
     for t = self.time_steps, 1, -1 do
@@ -184,17 +231,18 @@ function LSTM:backwardThroughTime(input, delta_output)
             -- l == 1 is the gradient of the input (we don't use that by now...)
             if l > 1 then 
                 drnn_state[t-1][l-1] = df_di
+            else
+                gradInput:select(2,t):copy(df_di)
             end
         end
     end
 
-    -- BPTT
-    init_state_global = self.rnn_state[#self.rnn_state]
-
+    local grad_clamp = self.opt.grad_clamp or 5
     -- clamp params to avoid the vanishing or exploding gradient problems
-    self.grad_params:clamp(-5, 5)
+    self.grad_params:clamp(-grad_clamp, grad_clamp)
 
-    return drnn_state, self.grad_params
+
+    return self.grad_params, gradInput
 end
 
 
@@ -237,10 +285,10 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
 
     -- create the core LSTM network
     self.protos = {}
-    self.protos.lstm = createProtoLSTM(input_size, num_layers, rnn_size, dropout)
+    self.protos.lstm = self:createProtoLSTM(input_size, num_layers, rnn_size, dropout)
     -- self.params, self.grad_params = self.protos.lstm:parameters()
 
-    self.params, self.grad_params = self.utils.combine_all_parameters(self.protos.lstm)
+    self.params, self.grad_params = self.protos.lstm:getParameters()
     self.params:uniform(-0.08, 0.08)
 
     -- clone states of the proto LSTM (will be cloned dinamically)
@@ -256,14 +304,15 @@ function LSTM:createLSTM(input_size, num_layers, rnn_size, dropout)
         table.insert(self.init_state, h_init:clone())
         table.insert(self.init_state, h_init:clone())
     end
-    self.init_state_global = self.utils.clone_list(self.init_state)
 
     -- ship everything to the GPU if required
     if self.cuda_enabled then
-        self.params = self.params:cuda()
-        self.protos.lstm = self.protos.lstm:cuda()
-        self.init_state = self.init_state:cuda()
-        self.init_state_global = self.init_state_global:cuda()
+       -- self.params = self.params:cuda()
+        self.protos.lstm:cuda()
+        for k, v in pairs(self.init_state) do
+            v = v:cuda()
+        end
+
     end
 end
 
@@ -275,7 +324,7 @@ end
 -- @param rnn_size integer to set the number of LSTM neurons per layer
 -- @param dropout real number to set the dropout of the network
 -- @return LSTM ngraph module wrapping all the components.
-function createProtoLSTM(input_size, num_layers, rnn_size, dropout)
+function LSTM:createProtoLSTM(input_size, num_layers, rnn_size, dropout)
 
 
     local inputs = {}

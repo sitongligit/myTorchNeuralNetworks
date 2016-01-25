@@ -34,23 +34,27 @@ cmd:option('-gpuid', -1, '1-indexed id of GPU to use. -1 = CPU')
 opt = cmd:parse(arg or {})
 
 
+local loader_time_steps = 15
 
 
-loader_time_steps = 15
-
-
-function validate(RNN, loader, draw)
+local function validate(RNN, loader, draw)
 
     ------------------- evaluation function enclosure -------------------
     local function feval_val()
         -- get time series data
-        x,y = loader:nextValidation()
+        local x,y = loader:nextValidation()
+
+        if opt.gpuid >= 0 then
+            x = x:cuda()
+            y = y:cuda()
+        end
+
 
         -- forward through the lstm core
-        output = RNN.model:forward(x)
+        local output = RNN.model:forward(x)
 
         -- forward through the criterion
-        loss = RNN.criterion:forward(output, y)
+        local loss = RNN.criterion:forward(output, y)
 
         return output, y, loss
     end
@@ -87,20 +91,17 @@ end
 
 
 
-function train(RNN, loader)
+local function train(RNN, loader)
 
     print('\n\nTraining network:')
     print('--------------------------------------------------------------')
     print('      > Optimization algorithm: '.. opt.opt_algorithm)
-    print('      > Total Network number of params: '.. RNN.model:getParameters():size(1))
+    print('      > Total Network number of params: '.. RNN.params:nElement())
     print('      > Learning rate: '.. opt.learning_rate)
     print('      > Batch size: '.. opt.batch_size)
     print('      > Max num. of epochs: '.. opt.max_epochs)
     print('--------------------------------------------------------------')
 
-
-    -- get params and gradient of the parameters
-    local params, grads = model:getParameters()
 
     -- local old_params = params:clone()
 
@@ -109,26 +110,31 @@ function train(RNN, loader)
     local function feval(parameters)
 
         -- get the data
-        input, y = loader:nextTrain()
+        local input, y = loader:nextTrain()
 
+        if opt.gpuid >= 0 then
+            input = input:cuda()
+            y = y:cuda()
+        end
         -- get net params and reset gradients
         if parameters ~= params then
-            params:copy(parameters)
+            RNN.params:copy(parameters)
         end
-        grads:zero()
+
+        RNN.grad_params:zero()
 
         -- forward pass
-        output = RNN.model:forward(input)
+        local output = RNN.model:forward(input)
 
         -- forward through the criterion
-        loss = RNN.criterion:forward(output, y)
+        local loss = RNN.criterion:forward(output, y)
 
         -- loss and soft-max layer backward pass
-        dloss = RNN.criterion:backward(output, y)
+        local dloss = RNN.criterion:backward(output, y)
 
         RNN.model:backward(input, dloss)
         
-        return loss, grads
+        return loss, RNN.grad_params
     end
     ------------------- evaluation function enclosure -------------------
 
@@ -147,7 +153,7 @@ function train(RNN, loader)
 
         local epoch = i / num_batches
 
-        _,local_loss = optim.rmsprop(feval, params, optim_state)
+        _,local_loss = optim.rmsprop(feval, RNN.params, optim_state)
 
         losses[#losses + 1] = local_loss[1]
         lloss = lloss + local_loss[1]
@@ -233,21 +239,32 @@ function main()
     local top_layer = nn.Sequential():add(nn.Linear(opt.rnn_size, output_size))
     local criterion = nn.MSECriterion()
 
-    model = nn.Sequential()
+
+    local model = nn.Sequential()
     model:add(my_lstm)
     model:add(top_layer)
 
-    print('Parameters of the lstm:')
-    p = my_lstm:getParameters()
-    print(p:size())
-    print('top_layer parameters:')
-    p,_ = top_layer:getParameters()
-    print(p:size())
 
     -- create the decoder, a top layer on top of the LSTM
-    RNN = {}
+    local RNN = {}
     RNN.model = model
     RNN.criterion = criterion
+
+    if opt.gpuid >=0 then
+        RNN.model:cuda()
+        RNN.criterion:cuda()
+    end
+
+    RNN.params, RNN.grad_params = RNN.model:getParameters()
+
+--[[
+    print('Parameters of the lstm:')
+    RNN.lstm_parms = my_lstm:getParameters()
+    print(RNN.lstm_parms:nElement())
+    print('top_layer parameters:')
+    RNN.top_layer_parms = top_layer:getParameters()
+    print(RNN.top_layer_parms:nElement())
+    ]]
 
 
     print('Creating LSTM RNN:')
